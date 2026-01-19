@@ -12,7 +12,7 @@ pkg> add IFTDuals
 ```
 
 ## Usage
-Using IFTDuals.jl is fairly straightforward. We export 3 functions, `ift`, `pvalue`, `nested_pvalue` and `promote_common_dual_type`.
+Using IFTDuals.jl is fairly straightforward. We export 4 functions, `ift`, `pvalue`, `nested_pvalue` and `promote_common_dual_type`.
 - `ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}`: Computes the higher order derivatives of `y` wrt the parameters defined in `tups`, with the relationship defined implicitly through `f(y, tups) = 0`. Here `tups` can be any data structure (e.g., scalar, vector, tuple, struct, etc.) containing `Dual` numbers. If `tups` does not contain any `Dual` numbers, we return `y` as is.
 
 - `pvalue(x::T) where T`: Extracts the value fields from a data structure `x` containing `Dual` numbers. We provide a generic implementations to hopefully handle all data structures. Adding a customized method for your custom structs is however advised for better performance.
