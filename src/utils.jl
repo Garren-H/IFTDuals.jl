@@ -27,9 +27,9 @@ NumEltype(::Type{<:AbstractArray{V}}) where V<:Number = V === Real ? Tuple(map(N
 NumEltype(x::AbstractArray{V}) where V = V === Any ? Tuple(map(NumEltype, x)) : NumEltype(V) # return all eltypes if Any
 NumEltype(::Type{AbstractArray{V}}) where V = V === Any ? throw(AnyTypeError()) : Tuple(NumEltype(V)) # return all eltypes if Any
 ## Dictionaries
-NumEltype(::Dict{K,V}) where {K,V<:Number} = V
-NumEltype(x::Dict{K,V}) where {K,V<:Any} = map(NumEltype, values(x)) # return all value eltypes
-NumEltype(::Type{Dict{K,V}}) where {K,V<:Number} = V
+NumEltype(x::Dict{K,V}) where {K,V<:Number} = V === Real ? Tuple(map(NumEltype, values(x))) : V
+NumEltype(x::Dict{K,V}) where {K,V<:Any} = Tuple(map(NumEltype, values(x))) # return all value eltypes
+NumEltype(::Type{Dict{K,V}}) where {K,V<:Number} = NumEltype(V)
 ## Tuples
 NumEltype(x::Tuple) = map(NumEltype, x) # tuples may have different datastructures, so we rather return eltypes for all entries
 NumEltype(::NTuple{N,V}) where {N,V<:Number} = V
@@ -220,6 +220,20 @@ function promote_common_dual_type(x::T, DT::Type{<:Dual}) where T
         contains_duals && return construct_type(flds...) # only reconstruct if we have Duals
     end
     return x # non-Dual types
+end
+
+"""
+```julia
+    get_common_dual_type(x)
+```
+Gets the common Dual supertype from the Dual numbers contained within generic data structures. If now Duals present, returns the common numeric supertype. And if no numeric types are present, it should error.
+"""
+function get_common_dual_type(x)
+    all_eltypes = NumEltype(x)
+    all_eltypes = flatten_tuple(all_eltypes) # flatten to single Tuple
+    all_eltypes = filter(et -> et !== Nothing, all_eltypes) # remove non-numeric types
+    common_et = promote_type(all_eltypes...) # get common supertype, should be Dual
+    return common_et
 end
 
 export pvalue, nested_pvalue, promote_common_dual_type

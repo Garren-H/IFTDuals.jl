@@ -110,8 +110,8 @@ function ift_recursive(y::Union{V,<:AbstractVector{V}},f::Function,tups,neg_A::U
         BNi = f(y,tups) # evaluate function at primal y
         return ift_(y,BNi,neg_A) # first order IFT and return Dual
     else
-        y = ift_recursive(y,f,pvalue.(tups),neg_A,der_order - 1) # recursive create_partials_duals
-        y_star = promote_dual_order(y,promote_type(eltype.(tups)...)) # promote to next order with zero inner-most partials
+        y = ift_recursive(y,f,pvalue(tups),neg_A,der_order - 1) # recursive create_partials_duals
+        y_star = promote_dual_order(y,get_common_dual_type(tups)) # promote to next order with zero inner-most partials
         BNi = f(y_star,tups) # evaluate function at y_star
         return ift_(y,BNi,neg_A) # next order IFT and return Dual
     end
@@ -123,9 +123,9 @@ end
 ```
 Function to compute higher-order derivatives using the implicit function theorem and (nested) Dual numbers. 
 Input:
-    'y'    : primal input value(s) (scalar or vector)
-    'f'    : function handle that takes 'y' and 'tups' as inputs
-    'tups' : tuple or data structure containing Dual numbers indicating the differentiation structure
+    `y`    : primal input solution to the root finnding problem (scalar or vector)
+    `f`    : function handle that takes 'y' and 'tups' as inputs
+    `tups` : tuple or data structure containing Dual numbers indicating the differentiation structure
 
 `f(y,tups) = 0` is assumed to define the implicit relationship between `y` and values given as `tups`.
 
@@ -137,14 +137,14 @@ function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}
     # Now we can proceed
     # Get primal value to compute Fy
     tups_primal = Constant(nested_pvalue(tups))
-    neg_A = if y isa AbstractVector
+    if y isa AbstractVector
         neg_A = -jacobian(f,AFD,y,tups_primal)
         checksquare(neg_A) # Ensure square matrix
-        neg_A = lu!(neg_A) # LU factorization for later solves
+        neg_A = lu(neg_A) # LU factorization for later solves
     else
          neg_A = -derivative(f,AFD,y,tups_primal)
     end
-    tups_ = map(t->promote_common_dual_type(tups,DT),tups) # promote tups to common Dual Type
+    tups_ = der_order == 1 ? tups : promote_common_dual_type(tups,DT) # promote Duals in tups to common Dual type if needed
     return ift_recursive(y,f,tups_,neg_A,der_order)
 end
 
