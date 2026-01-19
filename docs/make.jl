@@ -9,6 +9,7 @@ makedocs(
     modules = [IFTDuals],
     pages = [
         "Home" => "index.md",
+        "API" => "api.md",
     ]
 )
 
