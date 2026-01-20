@@ -182,7 +182,6 @@ _reduce(x) = reduce(promote_my_type, x; init=Nothing)
 promote_my_type(::Type{T}) where T<:Number = T
 promote_my_type(::Type{Any}) = throw(AnyTypeError())
 promote_my_type(::Type{Real}) = throw(RealTypeError())
-promote_my_type(::Type{Nothing}) = Nothing
 promote_my_type(::Type{<:Union{T,Nothing}}) where T<:Number = T
 promote_my_type(::Type{T}, ::Type{Nothing}) where T<:Number = T
 promote_my_type(::Type{Nothing}, ::Type{T}) where T<:Number = T
@@ -191,7 +190,7 @@ promote_my_type(x::T1, y::T2) where {T1,T2} = promote_my_type(promote_my_type(x)
 promote_my_type(::Type{T1}, x::T2) where {T1,T2} = promote_my_type(T1, promote_my_type(x))
 promote_my_type(x::Tuple) = _reduce(x)
 promote_my_type(::Type{NTuple{N,T}}) where {N,T} = promote_my_type(T)
-promote_my_type(::NTuple{N,T}) where {N,T} = promote_my_type(T)
+promote_my_type(::NTuple{N,T}) where {N,T<:Number} = promote_my_type(T)
 promote_my_type(x::Dict{K,V}) where {K,V} = _reduce(values(x))
 promote_my_type(x::Dict{K,V}) where {K,V<:Real} = V === Real ? _reduce(values(x)) : V
 promote_my_type(::Type{Dict{K,V}}) where {K,V} = promote_my_type(V)
