@@ -148,6 +148,21 @@ function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}
     return ift_recursive(y,f,promote_common_dual_type(tups,DT),neg_A,der_order) # promote Duals in tups to common Dual type
 end
 
+function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups,tups_primal) where {V<:Real}
+    der_order,DT = check_multiple_duals_and_return_order(tups) # check for multiple duals)
+    der_order == 0 && return y # No differentiation needed
+    # Get primal value to compute Fy
+    if y isa AbstractVector
+        neg_A = -jacobian(f,AFD,y,Constant(tups_primal))
+        checksquare(neg_A) # Ensure square matrix
+        neg_A = lu(neg_A) # LU factorization for later solves
+    else
+        neg_A = -derivative(f,AFD,y,Constant(tups_primal))
+    end
+    der_order == 1 && return ift_recursive(y,f,tups,neg_A,der_order) # no promotion needed
+    return ift_recursive(y,f,promote_common_dual_type(tups,DT),neg_A,der_order) # promote Duals in tups to common Dual type
+end
+
 export ift
 
 
