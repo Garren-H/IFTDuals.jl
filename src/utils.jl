@@ -177,8 +177,28 @@ function get_common_dual_type(x)
     return common_et
 end
 
-# Reimplementation of flatten_tuple to avoid circular imports
-_reduce(x) = reduce(promote_my_type, x; init=Nothing)
+# Promotion functions to get the common numeric supertype from generic Data structures
+_reduce(x) = reduce(promote_my_type, x; init=Nothing) # helper function to reduce over collections, essential to not allocate
+"""
+```julia
+    promote_my_type(::Type{T}) where T
+    promote_my_type(x::T) where T
+```
+Get the common numeric supertype (Duals) from generic data structures. For non-numeric types (String, Symbol, Nothing, Missing, Function), it returns Nothing. For custom data structures, it is recommended to provide your own method for `promote_my_type`. 
+
+Example:
+```julia
+struct MyStruct{T<:Number}
+    a::T # variable which may contain Duals
+    b::String # non-numeric variable
+end
+
+promote_my_type(::MyStruct{T}) where T<:Number = T # similar to eltype
+promote_my_type(::Type{MyStruct{T}}) where T<:Number = T # my be needed where tups contains NTuple{N,MyStruct{T}} types
+```
+
+Internally we call `promote_my_type(tups)` which obtains the numeric types from each entry in tups and then reduces over them to get the common numeric supertype. **This is hence a combination of `Base.eltype` and `Base.promote_type` but specialized to only consider numeric types**. An attempt is made to extract the numeric type(s) from custom structs, however this may fail or be non-performant. It is hence highly recommended to provide your own method for custom data structures.
+"""
 promote_my_type(::Type{T}) where T<:Number = T
 promote_my_type(::Type{Any}) = throw(AnyTypeError())
 promote_my_type(::Type{Real}) = throw(RealTypeError())
@@ -227,5 +247,5 @@ function promote_my_type(x::T)::Union{Type{<:Number}, Type{Nothing}} where T
     end
 end
 
-export pvalue, nested_pvalue, promote_common_dual_type
+export pvalue, nested_pvalue, promote_common_dual_type, promote_my_type
 

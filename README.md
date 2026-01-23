@@ -2,7 +2,7 @@
 
 IFTDuals.jl is a lightweight Julia package for computing higher order derivatives for a function, $x=g(\theta)$ implicitly defined through the implicit function theorem (IFT) using dual numbers. IFT gives the relationship between $g$ and $\theta$ implicitly through the equation $f(g(\theta), \theta) = 0$. 
 
-**Note**: We currently do not support mixed-mode AD, such as closures or (nested) Duals with different tags. As a workaround, one can concatenate all parameters into a single vector and use a single Dual tag.
+**Note**: We currently do not support mixed-mode AD, such as closures or (nested) Duals with different tags. As a workaround, one can concatenate all parameters into a single vector and use a single Dual tag. We currently assume for nested Duals, `partials.value == value.partials`.
 
 ## Installation
 You can install IFTDuals.jl via Julia's package manager. In the Julia REPL, enter the package manager by pressing `]` and then run:
@@ -12,23 +12,26 @@ pkg> add IFTDuals
 ```
 
 ## Usage
-Using IFTDuals.jl is fairly straightforward. We export 4 functions, `ift`, `pvalue`, `nested_pvalue` and `promote_common_dual_type`.
+Using IFTDuals.jl is fairly straightforward. We export 5 functions, `ift`, `pvalue`, `nested_pvalue`, `promote_common_dual_type` and `promote_my_type`.
 - `ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}`: Computes the higher order derivatives of `y` wrt the parameters defined in `tups`, with the relationship defined implicitly through `f(y, tups) = 0`. Here `tups` can be any data structure (e.g., scalar, vector, tuple, struct, etc.) containing `Dual` numbers. If `tups` does not contain any `Dual` numbers, we return `y` as is.
 
-- `pvalue(x::T) where T`: Extracts the value fields from a data structure `x` containing `Dual` numbers. 
+- `pvalue(x::T) where T`: Extracts the value fields from a data structure `x` containing `Dual` numbers. If `T<:Dual`, it return `ForwardDiff.value(x)`.
 
 - `nested_pvalue(x::T) where T`: Similar to `pvalue`, but recursively extracts the value fields to obtain the primal value. 
 
-- `promote_common_dual_type(tups)`: Promotes all `Dual` numbers in the data structure `tups` to have the same type, which is the common supertype of all `Dual` numbers in `tups`. This is useful when you have multiple `Dual` types in `tups` and want to ensure they are all of the same type for compatibility. I.e. `tups` may contain for instance first order, second order and third order (nested) `Dual` numbers (with the same tag). This function promotes all these order to a common order (the maximum order found in `tups`).
+- `promote_common_dual_type(tups,DT::Type{<:Dual})`: Promotes all `Dual` numbers in the data structure `tups` to have the same type, which is the common supertype of all `Dual` numbers in `tups`. This is useful when you have multiple `Dual` types in `tups` and want to ensure they are all of the same type for compatibility. I.e. `tups` may contain for instance first order, second order and third order (nested) `Dual` numbers (with the same tag). This function promotes all these variables to a common dual type, `DT`.
 
-Providing custom implementations for your custom structs for the methods, `pvalue`, `nested_pvalue` and `promote_common_dual_types` is highly advised. We do provide generic implementations for this, but may not be performant, and may fail.
+- `promote_my_type(x::T) where T`: This function signature acts similarly to `Base.eltype`. It should be used to extract the underlying numeric data type from a data structure `x`. For non-numeric data structures, it should return `Nothing`. Internally, when calling `promote_my_type(tups)`, we extract the underlying numeric type `T` from all numeric types in `tups`, promote them to a common supertype and return that type. The returned type is then used in `promote_common_dual_type` to promote all `Dual` numbers in `tups` to have the same type. This functions is hence a combination of `Base.eltype` and `Base.promote_type` but coded with the intention to be non-allocating.
+
+We provide default implementations to handle custom data structures for the above methods, however these are not garanteed to work nor be performant. it is highly recommended to provide custom implementations (excluding `ift`). 
 
 ### Example
 Here is a simple example demonstrating how to use IFTDuals.jl to compute higher order derivatives using the implicit function theorem.
 
 ```julia
 using IFTDuals
-using ForwardDiff
+using DifferentiationInterface
+import ForwardDiff
 
 # Define the implicit function f(x, θ) = 0
 f(x, θ) = x^3 + θ*x - 1
@@ -39,7 +42,25 @@ function get_x(θ)
     return ift(x, f, θ) # compute derivatives if duals are present
 end
 
-grad = ForwardDiff.gradient(get_x, θ) # or derivative, jacobian and/or hessien should work.
+grad = second_derivative(get_x, AutoForwardDiff(), θ) # or derivative, jacobian and/or hessien should work.
+```
+
+#### Custom structs overloads
+If you have custom structs passed as `tups`, it is highly advised to provide custom implementations for the methods, `pvalue`, `nested_pvalue`, `promote_common_dual_types` and `promote_my_type`. We do attempt to provide generic implementations for these methods but no garantees are made that these will work for your custom structs, or be performant.
+
+```julia
+struct MyParams{T<:Real}
+    a::Vector{T}
+    b::T
+    c::String # variable that does not require differentiation
+end
+
+pvalue(p::MyParams{T}) where T = MyParams{pvalue(T)}(pvalue.(p.a), pvalue(p.b), p.c)
+nested_pvalue(p::MyParams{T}) where T = MyParams{nested_pvalue(T)}(nested_pvalue.(p.a), nested_pvalue(p.b), p.c)
+promote_common_dual_type(p::MyParams{T}, DT::Type{<:Dual}) where T = MyParams{T}(promote_common_dual_type(p.a, DT), promote_common_dual_type(p.b, DT), p.c) # promote Dual to type DT
+promote_common_dual_type(p::MyParams{T}, T::Type{<:Dual}) where T = p # already target dual, overload for efficiency
+promote_my_type(p::MyParams{T}) where T = T # similar to Base.eltype
+promote_my_type(::Type{MyParams{T}}) where T = T # might be needed if tups contains NTuple{N,MyParams{T}} types
 ```
 
 ## Contributing
