@@ -55,9 +55,9 @@ struct MyParams{T<:Real}
     c::String # variable that does not require differentiation
 end
 
-pvalue(p::MyParams{T}) where T = MyParams{pvalue(T)}(pvalue.(p.a), pvalue(p.b), p.c)
-nested_pvalue(p::MyParams{T}) where T = MyParams{nested_pvalue(T)}(nested_pvalue.(p.a), nested_pvalue(p.b), p.c)
-promote_common_dual_type(p::MyParams{T}, DT::Type{<:Dual}) where T = MyParams{T}(promote_common_dual_type(p.a, DT), promote_common_dual_type(p.b, DT), p.c) # promote Dual to type DT
+pvalue(p::MyParams{T}) where T = MyParams{pvalue(T)}(pvalue(p.a), pvalue(p.b), p.c)
+nested_pvalue(p::MyParams{T}) where T = MyParams{nested_pvalue(T)}(nested_pvalue(p.a), nested_pvalue(p.b), p.c)
+promote_common_dual_type(p::MyParams{T}, DT::Type{<:Dual}) where T = MyParams{DT}(promote_common_dual_type(p.a, DT), promote_common_dual_type(p.b, DT), p.c) # promote Dual to type DT
 promote_common_dual_type(p::MyParams{T}, T::Type{<:Dual}) where T = p # already target dual, overload for efficiency
 promote_my_type(p::MyParams{T}) where T = T # similar to Base.eltype
 promote_my_type(::Type{MyParams{T}}) where T = T # might be needed if tups contains NTuple{N,MyParams{T}} types
