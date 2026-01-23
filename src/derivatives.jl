@@ -27,7 +27,8 @@ promote_dual_order(y::AbstractVector{V}, DT::Type{<:Dual{T,V,N}}) where {T,V,N} 
 ```
 Extracts the `Tuple` from a `ForwardDiff.Partials` struct. If `N==1`, it returns a scalar instead of a one-element Tuple.
 """
-extract_values_field_from_partials(parts::Partials{N,V}) where {N,V} = N == 1 ? parts.values[1] : parts.values
+extract_values_field_from_partials(parts::Partials{N,V}) where {N,V} = parts.values
+extract_values_field_from_partials(parts::Partials{1,V}) where {V} = parts.values[1]
 
 """
 ```julia
@@ -49,10 +50,11 @@ extract_partials_field_from_dual(x::AbstractVector{<:Dual{T,V,N}},idx::Union{T2,
 Stacks the partial derivatives of a Dual (or Vector of Duals) into a Matrix of M x N, where M is the size of the input, N is the number of partials. When an index `idx` is provided, it returns a Vector, the 'idx'-th partial derivative(s) (`idx`-th column of the stacked Matrix but efficiently).
 """
 custom_stack(x::Union{V,AbstractArray{V}}) where {V<:Dual} = stack(extract_partials_field_from_dual,x;dims=1)
-function custom_stack(x::Union{<:Dual{T,V,N},AbstractArray{<:Dual{T,V,N}}},idx::Union{T2,Vector{T2}}) where {T,V,N,T2<:Union{Int,CartesianIndex{1}}}
+function custom_stack(x::Union{V,<:AbstractArray{V}},idx::Union{T2,Vector{T2}}) where {V<:Dual,T2<:Union{Int,CartesianIndex{1}}}
     func = Base.Fix2(extract_partials_field_from_dual,idx)
     return stack(func,x;dims=1)
 end
+custom_stack(x::Dual{T,V,1}) where {T,V} = extract_partials_field_from_dual(x) # extract single partial
 
 # Functions to actually compute higher order derivatives
 """
@@ -94,9 +96,8 @@ function ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{Dual{T,V,N},<:AbstractV
             vect_duals[:,i] = ift_(dy,BNi_i,neg_A) # recursive call, creates nested Dual partials
         end        
         return create_partials_duals(y,DT,PT,vect_duals) # construct Dual numbers
-    else # Base case when we do noy have Dual nestings
-        return solve_ift(y,custom_stack(BNi),neg_A,Dual{T,V,N})
     end
+    return solve_ift(y,custom_stack(BNi),neg_A,Dual{T,V,N}) # base case, solve for directional derivatives and create Duals
 end
 
 """
@@ -134,7 +135,6 @@ Input:
 function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}
     der_order,DT = check_multiple_duals_and_return_order(tups) # check for multiple duals)
     der_order == 0 && return y # No differentiation needed
-    # Now we can proceed
     # Get primal value to compute Fy
     tups_primal = Constant(nested_pvalue(tups))
     if y isa AbstractVector
@@ -144,8 +144,8 @@ function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}
     else
         neg_A = -derivative(f,AFD,y,tups_primal)
     end
-    tups_ = der_order == 1 ? tups : promote_common_dual_type(tups,DT) # promote Duals in tups to common Dual type if needed
-    return ift_recursive(y,f,tups_,neg_A,der_order)
+    der_order == 1 && return ift_recursive(y,f,tups,neg_A,der_order) # no promotion needed
+    return ift_recursive(y,f,promote_common_dual_type(tups,DT),neg_A,der_order) # promote Duals in tups to common Dual type
 end
 
 export ift
