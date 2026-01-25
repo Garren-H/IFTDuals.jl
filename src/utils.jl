@@ -18,39 +18,47 @@ end
 pvalue(x::MyStruct{T}) where T<:Number = MyStruct{ForwardDiff.valtype(T)}(pvalue(x.a), x.b) # construct new struct with primal eltypes
 ```
 """
-pvalue(::Type{Dual{T,V,N}}) where {T,V,N} = V
+pvalue(::Type{V}) where V<:Dual = valtype(V)
 pvalue(::Type{T}) where T<:Tuple = Tuple{map(pvalue, T.parameters)...}
 pvalue(::Type{NTuple{N,T}}) where {N,T} = NTuple{N, pvalue(T)}
 pvalue(::Type{Dict{K,V}}) where {K,V} = Dict{K, pvalue(V)}
 pvalue(::Type{T}) where T<:Union{String, Symbol, Nothing, Missing, Function} = T # non-Dual types
-function pvalue(::Type{V}) where V #return constructor for structs
-    if isstructtype(V)
-        construct_type = Base.typename(V).wrapper
-        construct_eltypes = V.parameters
-        if length(construct_eltypes) > 0
-            construct_eltypes = map(pvalue, construct_eltypes) # recursion on eltyoes
-            construct_type = construct_type{construct_eltypes...}
-        end
-        return construct_type
+@generated function pvalue_structs(::Type{V}) where V
+    construct_type = Expr(:curly,Base.typename(V).wrapper)
+    construct_eltypes = V.parameters
+    for elt in construct_eltypes
+       push!(construct_type.args,:(pvalue($elt)))
     end
-    return V # non-Dual types
+    return construct_type
+end
+
+function pvalue(::Type{V}) where V #return constructor for structs
+   if isstructtype(V)
+        construct_eltypes = V.parameters
+        length(construct_eltypes) > 0 || return V # base case when no Duals are present
+        return pvalue_structs(V)
+   end
+   return V # non-Dual types
 end
 pvalue(x::V) where V<:Dual = value(x)
-pvalue(x::AbstractArray) = map(pvalue, x)
+pvalue(x::Array) = map(pvalue, x)
 pvalue(x::NTuple{N,T}) where {N,T} = map(pvalue, x)
 pvalue(x::Tuple) = map(pvalue, x)
 pvalue(x::Dict{K,V}) where {K,V} = Dict(k => pvalue(v) for (k,v) in pairs(x))
 pvalue(x::Union{String, Symbol, Nothing, Missing, Function}) = x # non-Dual types
+@generated function pvalue_structs(x::T) where T
+    fldnames = fieldnames(T)
+    construct_type = Expr(:call, pvalue(T)) # call to reconstruct type with primal eltypes
+    for n in fldnames
+        push!(construct_type.args, :(pvalue(getfield(x, $(QuoteNode(n))))))
+    end
+    return construct_type
+end
+
 function pvalue(x::T) where T # handle structs specifically 
     if isstructtype(T)
         check_eltypes(promote_my_type(x)) || return x # base case when no Duals are present
-        fldnames = fieldnames(T)
-        construct_type = Base.typename(T).wrapper
-        construct_eltypes = T.parameters
-        if length(construct_eltypes) > 0
-            construct_type = construct_type{map(pvalue, construct_eltypes)...}
-        end
-        return construct_type([pvalue(getfield(x, n)) for n in fldnames]...)
+        return pvalue_structs(x)
     end
     return x # non-Dual types
 end
@@ -63,10 +71,10 @@ end
 ```
 Checks if the eltypes contain any Duals. If it does, returns true. This is a helper function intended for internal use.
 """
-check_eltypes(::Type{V}) where V = V<:Dual
+check_eltypes(V::Type) = V<:Dual
 check_eltypes(x::Tuple) = any(check_eltypes, x)
 check_eltypes(x::AbstractArray) = any(check_eltypes, x)
-needs_promotion(::Type{V1}, ::Type{V2}) where {V1,V2<:Dual} = check_eltypes(V1) && (V1 != V2)
+needs_promotion(V1::Type, V2::Type{<:Dual}) = check_eltypes(V1) && (V1 != V2)
 
 """
 ```julia
@@ -82,34 +90,44 @@ nested_pvalue(::Type{T}) where T<:Tuple = Tuple{map(nested_pvalue, T.parameters)
 nested_pvalue(::Type{NTuple{N,T}}) where {N,T} = NTuple{N, nested_pvalue(T)}
 nested_pvalue(::Type{Dict{K,V}}) where {K,V} = Dict{K, nested_pvalue(V)}
 nested_pvalue(::Type{T}) where T<:Union{String, Symbol, Nothing, Missing, Function} = T # non-Dual types
+
+@generated function nested_pvalue_structs(::Type{T}) where T
+    construct_type = Expr(:curly,Base.typename(T).wrapper)
+    construct_eltypes = T.parameters
+    for elt in construct_eltypes
+       push!(construct_type.args,:(nested_pvalue($elt)))
+    end
+    return construct_type
+end
+
 function nested_pvalue(::Type{T}) where T 
     if isstructtype(T) # attempt to reconstruct struct type with primal eltypes
-        construct_type = Base.typename(T).wrapper
         construct_eltypes = T.parameters
-        if length(construct_eltypes) > 0
-            construct_type = construct_type{map(nested_pvalue, construct_eltypes)...}
-        end
-        return construct_type
+        length(construct_eltypes) > 0 || return T 
+        return nested_pvalue_structs(T)
     end
     return T # fallback to Type for non-struct types
+end
+
+@generated function nested_pvalue_structs(x::T) where T
+    fldnames = fieldnames(T)
+    construct_type = Expr(:call, nested_pvalue(T)) # call to reconstruct type with primal eltypes
+    for n in fldnames
+        push!(construct_type.args, :(nested_pvalue(getfield(x, $(QuoteNode(n))))))
+    end
+    return construct_type
 end
 
 function nested_pvalue(x::T) where T
     if isstructtype(T) #attempt to reconstruct struct type with primal eltypes
         check_eltypes(promote_my_type(x)) || return x # base case when no Duals are present
-        fldnames = fieldnames(T)
-        construct_type = Base.typename(T).wrapper
-        construct_eltypes = T.parameters
-        if length(construct_eltypes) > 0 # when we have eltypes associated with structures, we get the primal eltypes into the signature for reconstruction
-            construct_type = construct_type{map(nested_pvalue, construct_eltypes)...}
-        end
-        return construct_type([nested_pvalue(getfield(x, n)) for n in fldnames]...)
+        return nested_pvalue_structs(x) 
     end
     return x # non-Dual types
 end
 nested_pvalue(x::Dual{T,V,N}) where {T,V,N} = pvalue(x)
 nested_pvalue(x::Dual{T,V,N}) where {T,V<:Dual,N} = nested_pvalue(pvalue(x))
-nested_pvalue(x::AbstractArray) = map(nested_pvalue, x)
+nested_pvalue(x::Array) = map(nested_pvalue, x)
 nested_pvalue(x::NTuple{N,T}) where {N,T} = map(nested_pvalue, x)
 nested_pvalue(x::Tuple) = map(nested_pvalue, x)
 nested_pvalue(x::Dict{K,V}) where {K,V} = Dict(k => nested_pvalue(v) for (k,v) in pairs(x))
@@ -126,40 +144,44 @@ promote_common_dual_type(x::Tuple, DT::Type{<:Dual}) = map(Base.Fix2(promote_com
 promote_common_dual_type(x::NTuple{N,V}, ::Type{V}) where {N,V<:Dual} = x # already of desired type
 promote_common_dual_type(x::V, DT::Type{<:Dual}) where V<:Dual = DT(x)
 promote_common_dual_type(x::V, ::Type{V}) where V<:Dual = x # already of desired type
-promote_common_dual_type(x::AbstractArray{V}, DT::Type{<:Dual}) where V = map(Base.Fix2(promote_common_dual_type,DT), x)
+promote_common_dual_type(x::Array{V}, DT::Type{<:Dual}) where V = map(Base.Fix2(promote_common_dual_type,DT), x)
 promote_common_dual_type(x::AbstractArray{V}, ::Type{V}) where V<:Dual = x # already of desired type
 promote_common_dual_type(x::Union{String, Symbol, Nothing, Missing, Function}, DT::Type{<:Dual}) = x # non-Dual types
 promote_common_dual_type(x::Dict{K,V}, DT::Type{<:Dual}) where {K,V} = Dict(k => promote_common_dual_type(v,DT) for (k,v) in pairs(x))
 promote_common_dual_type(x::Dict{K,V}, ::Type{V}) where {K,V<:Dual} = x # already of desired type
 promote_common_dual_type(::Type{V1}, ::Type{V2}) where {V1<:Dual,V2<:Dual} = V2 # for Dual types, just return the target Dual
+
+@generated function promote_common_dual_type_structs(::Type{V1}, ::Type{DT}) where {V1,DT<:Dual}
+    construct_type = Expr(:curly,Base.typename(V1).wrapper)
+    construct_eltypes = V1.parameters
+    for elt in construct_eltypes
+       push!(construct_type.args,:(promote_common_dual_type($elt, DT)))
+    end
+    return construct_type
+end
+
 function promote_common_dual_type(::Type{V1}, DT::Type{<:Dual}) where V1
     if isstructtype(V1) #attempt to reconstruct struct type with promoted eltypes
-        construct_type = Base.typename(V1).wrapper
         construct_eltypes = V1.parameters
-        if length(construct_eltypes) > 0
-            construct_eltypes = map(Base.Fix2(promote_common_dual_type,DT), construct_eltypes) # recursion on eltypes
-            construct_type = construct_type{construct_eltypes...}
-        end
-        return construct_type
+        length(construct_eltypes) > 0 || return V1 # base case when no Duals are present
+        return promote_common_dual_type_structs(V1, DT)
     end
     return V1 # non-Dual and non-struct types
 end
 
+@generated function promote_common_dual_type_structs(x::T, ::Type{DT}) where {T,DT<:Dual}
+    fldnames = fieldnames(T)
+    construct_type = Expr(:call, promote_common_dual_type(T, DT)) # call to reconstruct type with promoted eltypes
+    for n in fldnames
+        push!(construct_type.args, :(promote_common_dual_type(getfield(x, $(QuoteNode(n))), DT)))
+    end
+    return construct_type
+end
+
 function promote_common_dual_type(x::T, DT::Type{<:Dual}) where T
-    if isstructtype(T) 
-        fldnames = fieldnames(T)
-        construct_type = Base.typename(T).wrapper
-        flds = (getfield(x,fld) for fld in fldnames)
-        fld_eltypes = map(promote_my_type, flds) # get the highest Number eltypes per field
-        to_promote = map(Base.Fix2(needs_promotion,DT), fld_eltypes) # check which fields need promotion
-        if any(to_promote)
-            construct_eltypes = T.parameters
-            if length(construct_eltypes) > 0
-                construct_eltypes = map(Base.Fix2(promote_common_dual_type,DT), construct_eltypes) # recursion on eltypes
-                construct_type = construct_type{construct_eltypes...}
-            end
-            return construct_type([to_promote[i] ? promote_common_dual_type(fld, DT) : fld for (i,fld) in enumerate(flds)]...)
-        end
+    if isstructtype(T)
+        check_eltypes(promote_my_type(x)) || return x # base case when no Duals are present
+        return promote_common_dual_type_structs(x, DT)
     end
     return x # non-Dual types
 end
@@ -223,8 +245,10 @@ promote_my_type(::Type{Symbol}) = Nothing
 promote_my_type(::Type{Nothing}) = Nothing
 promote_my_type(::Type{Missing}) = Nothing
 promote_my_type(::Function) = Nothing
-promote_my_type(x::AbstractArray)::Union{Type{<:Number}, Type{Nothing}} = _reduce(x)
-function promote_my_type(x::AbstractArray{V})::Union{Type{<:Number}, Type{Nothing}} where V<:Number 
+promote_my_type(::Type{Function}) = Nothing
+promote_my_type(::Type{T}) where T<:Array = promote_my_type(T.parameters[1])
+promote_my_type(x::AbstractArray) = _reduce(x)
+function promote_my_type(x::AbstractArray{V}) where V<:Number 
     if V === Real 
         return _reduce(x)
     else 
@@ -235,16 +259,25 @@ function promote_my_type(::AbstractArray{V})::Union{Type{<:Number}, Type{Nothing
     return Nothing
 end
 
-function promote_my_type(x::T)::Union{Type{<:Number}, Type{Nothing}} where T
+function promote_my_type(x::T) where T
     if T <: Number
         return promote_type(T)
     elseif x === DataType # isstructtype(DataType) = true
         return Nothing
     elseif isstructtype(T)
-        return _reduce(getfield(x, fld) for fld in fieldnames(T))
+        return promote_my_type_struct(x)
     else
         throw(error("No method for promote_my_type(::$T). Define a custom method if needed."))
     end
+end
+
+@generated function promote_my_type_struct(x::T) where T
+    args = Expr[]
+    fldnames = fieldnames(T)
+    for n in fldnames
+        push!(args, :(promote_my_type(getfield(x, $(QuoteNode(n))))))
+    end
+    return Expr(:call, :_reduce, Expr(:tuple, args...)) # wrap in tuple for instanced of a single or no args
 end
 
 export pvalue, nested_pvalue, promote_common_dual_type, promote_my_type
