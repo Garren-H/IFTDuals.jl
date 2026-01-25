@@ -12,8 +12,12 @@ function check_multiple_duals_and_return_order(x)
     et = common_et
     N = npartials(et)
     T = tagtype(et)
+    lenT = length(T.parameters)
     while et <: Dual
         et = check_multiple_duals(et,N,T)
+        if lenT == 2 && T.parameters[2] <: Dual
+            T = tagtype(T.parameters[2]) # go one level deeper
+        end
     end
     return order_,common_et
 end
