@@ -72,7 +72,7 @@ create_partials_duals(y::AbstractVector{V},DT::Type{<:Dual{T,V,N}},PT::Type{<:Pa
 ```
 Solves the implicit function theorem system for a single directional derivative and constructs `Dual` numbers of type `DT` with the computed partial derivatives. This is part of a recursive process to compute higher-order derivatives.
 """
-function solve_ift(y::Union{V,<:AbstractVector{V}},BNi::Union{V,AbstractVecOrMat{V}},neg_A::Union{V,<:LU{V,<:AbstractMatrix{V},<:AbstractVector{<:Integer}}},DT::Type{<:Dual{T,V,N}}) where {T,V<:Real,N} # case for a single directional derivative
+function solve_ift(y::Union{V,<:AbstractVector{V}},BNi::Union{V,AbstractVecOrMat{V}},neg_A,DT::Type{<:Dual{T,V,N}}) where {T,V<:Real,N} # case for a single directional derivative
     #assert ForwardDiff.npartials(DT) == 1 "For this function call, the Dual type must have only one directional derivative."
     parts = neg_A \ BNi # Solve for directional derivatives
     PT = Partials{N,V}
@@ -85,7 +85,7 @@ end
 ```
 For a given order of differentiation, recusrively computes all directional derivatives using the implicit function theorem and recreates the appropriate `ForwardDiff.Dual` structure.
 """
-function ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{Dual{T,V,N},<:AbstractVector{Dual{T,V,N}}},neg_A::Union{V2,<:LU{V2,<:AbstractMatrix{V2},<:AbstractVector{<:Integer}}}) where {T,V<:Real,N,V2<:Real} # case for a single directional derivative
+function ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{Dual{T,V,N},<:AbstractVector{Dual{T,V,N}}},neg_A) where {T,V<:Real,N} # case for a single directional derivative
     if V <: Dual # recursion
         DT = Dual{T,V,N}
         PT = Partials{N,V}
@@ -106,7 +106,7 @@ end
 ```
 Recursively applies the implicit function theorem to compute higher-order derivatives up to `der_order`. It evaluates the function `f` at the current `y`, solves for the directional derivatives using `ift_`, and promotes `y` to the next order of `Dual` numbers as needed.
 """
-function ift_recursive(y::Union{V,<:AbstractVector{V}},f::Function,tups,neg_A::Union{V2,<:LU{V2,<:AbstractMatrix{V2},<:AbstractVector{<:Integer}}},der_order::Int) where {V<:Real,V2<:Real}
+function ift_recursive(y::Union{V,<:AbstractVector{V}},f::Function,tups,neg_A,der_order::Int) where {V<:Real}
     if der_order == 1 # inner most call
         BNi = f(y,tups) # evaluate function at primal y
         return ift_(y,BNi,neg_A) # first order IFT and return Dual
