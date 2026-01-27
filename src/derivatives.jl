@@ -68,8 +68,12 @@ custom_stack(x::Dual{T,V,1}) where {T,V} = extract_partials_field_from_dual(x) #
 Creates a `Dual` number of type `DT` with value `y` and partial derivatives given by `parts`, which can be a scalar or a vector of partial derivatives. If `y` is a vector, it creates a Vector of `Dual` numbers accordingly.
 """
 create_partials_duals(y::V,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,P<:Union{V,<:AbstractVector{V}}} = DT(y,PT(NTuple{N,V}(parts)))
-create_partials_duals(y::Y,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,Y<:AbstractVector{V},P<:AbstractVecOrMat{V}} = map(y,eachrow(parts)) do yi, pi
-    create_partials_duals(yi, DT, PT, pi)
+function create_partials_duals(y::Y,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,Y<:AbstractVector{V},P<:AbstractVecOrMat{V}}
+    out = Vector{DT}(undef, length(y)) # preallocate output
+    @inbounds for i in eachindex(y)
+        out[i] = create_partials_duals(y[i],DT,PT,view(parts,i,:))
+    end
+    return out
 end
 
 """

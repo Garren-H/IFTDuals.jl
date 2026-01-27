@@ -147,8 +147,8 @@ promote_common_dual_type(x::Tuple, DT::Type{<:Dual}) = map(Base.Fix2(promote_com
 promote_common_dual_type(x::NTuple{N,V}, ::Type{V}) where {N,V<:Dual} = x # already of desired type
 promote_common_dual_type(x::V, DT::Type{<:Dual}) where V<:Dual = DT(x)
 promote_common_dual_type(x::V, ::Type{V}) where V<:Dual = x # already of desired type
-promote_common_dual_type(x::Array{V}, DT::Type{<:Dual}) where V = map(Base.Fix2(promote_common_dual_type,DT), x)
-promote_common_dual_type(x::AbstractArray{V}, ::Type{V}) where V<:Dual = x # already of desired type
+promote_common_dual_type(x::X, DT::Type{<:Dual}) where {V,X<:AbstractArray{V}} = map(Base.Fix2(promote_common_dual_type,DT), x)
+promote_common_dual_type(x::X, ::Type{V}) where {V<:Dual,X<:AbstractArray{V}} = x # already of desired type
 promote_common_dual_type(x::V, ::Type{<:Dual}) where V<:Union{String, Symbol, Nothing, Missing, Function} = x # non-Dual types
 promote_common_dual_type(x::Dict{K,V}, DT::Type{<:Dual}) where {K,V} = Dict(k => promote_common_dual_type(v,DT) for (k,v) in pairs(x))
 promote_common_dual_type(x::Dict{K,V}, ::Type{V}) where {K,V<:Dual} = x # already of desired type

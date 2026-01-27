@@ -17,11 +17,12 @@ function pvalue(x::V) where {T,N,V<:AbstractArray{T,N}} # handle arrays of mixed
     return PValueArray{TT,N,V}(x)
 end
 
+# Wrapper for Arrays of Duals, to extract nested primal values without allocating new arrays.
 struct NestedPValueArray{T,N,V} <: AbstractArray{T,N}
    vec::V
 end
 function NestedPValueArray(vec::V) where {T,N,V<:AbstractArray{T,N}}
-    TT = pvalue(T)
+    TT = nested_pvalue(T)
     return NestedPValueArray{TT,N,V}(vec)
 end
 Base.size(A::NestedPValueArray) = size(A.vec)
@@ -33,4 +34,5 @@ function nested_pvalue(x::V) where {T,N,V<:AbstractArray{T,N}} # handle arrays o
     TT = nested_pvalue(T)
     return NestedPValueArray{TT,N,V}(x)
 end
+
 
