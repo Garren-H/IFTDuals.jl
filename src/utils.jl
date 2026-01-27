@@ -41,11 +41,14 @@ function pvalue(::Type{V}) where V #return constructor for structs
    return V # non-Dual types
 end
 pvalue(x::V) where V<:Dual = value(x)
-pvalue(x::Array) = map(pvalue, x)
+#=function pvalue(x::T) where T<:Array=#
+#=    out = similar(x)=#
+#=    map!(pvalue, out, x)=#
+#=    return out=#
 pvalue(x::NTuple{N,T}) where {N,T} = map(pvalue, x)
 pvalue(x::Tuple) = map(pvalue, x)
 pvalue(x::Dict{K,V}) where {K,V} = Dict(k => pvalue(v) for (k,v) in pairs(x))
-pvalue(x::Union{String, Symbol, Nothing, Missing, Function}) = x # non-Dual types
+pvalue(x::T) where T<:Union{String, Symbol, Nothing, Missing, Function} = x # non-Dual types
 @generated function pvalue_structs(x::T) where T
     fldnames = fieldnames(T)
     construct_type = Expr(:call, pvalue(T)) # call to reconstruct type with primal eltypes
@@ -85,7 +88,7 @@ Extracts the innermost primal value type(s) from generic data structures contain
 For generic structure, we have an implementation which attempts to reconstruct the struct type with primal eltypes, but is possible that this may fail. You may consider providing your own method for custom data structures, using recursive calls to `pvalue` or `ForwardDiff.value` as needed.
 """
 nested_pvalue(::Type{Dual{T,V,N}}) where {T,V,N} = valtype(V)
-nested_pvalue(::Type{<:Dual{T,V,N}}) where {T,V<:Dual,N} = nested_pvalue(V)
+nested_pvalue(::Type{Dual{T,V,N}}) where {T,V<:Dual,N} = nested_pvalue(V)
 nested_pvalue(::Type{T}) where T<:Tuple = Tuple{map(nested_pvalue, T.parameters)...}
 nested_pvalue(::Type{NTuple{N,T}}) where {N,T} = NTuple{N, nested_pvalue(T)}
 nested_pvalue(::Type{Dict{K,V}}) where {K,V} = Dict{K, nested_pvalue(V)}
@@ -127,11 +130,11 @@ function nested_pvalue(x::T) where T
 end
 nested_pvalue(x::Dual{T,V,N}) where {T,V,N} = pvalue(x)
 nested_pvalue(x::Dual{T,V,N}) where {T,V<:Dual,N} = nested_pvalue(pvalue(x))
-nested_pvalue(x::Array) = map(nested_pvalue, x)
+#=nested_pvalue(x::Array) = map(nested_pvalue, x)=#
 nested_pvalue(x::NTuple{N,T}) where {N,T} = map(nested_pvalue, x)
 nested_pvalue(x::Tuple) = map(nested_pvalue, x)
 nested_pvalue(x::Dict{K,V}) where {K,V} = Dict(k => nested_pvalue(v) for (k,v) in pairs(x))
-nested_pvalue(x::Union{String, Symbol, Nothing, Missing, Function}) = x # non-Dual types
+nested_pvalue(x::V) where V<:Union{String, Symbol, Nothing, Missing, Function} = x # non-Dual types
 
 # Functions to promote from one Dual type to another in generic Data structures
 """
@@ -146,7 +149,7 @@ promote_common_dual_type(x::V, DT::Type{<:Dual}) where V<:Dual = DT(x)
 promote_common_dual_type(x::V, ::Type{V}) where V<:Dual = x # already of desired type
 promote_common_dual_type(x::Array{V}, DT::Type{<:Dual}) where V = map(Base.Fix2(promote_common_dual_type,DT), x)
 promote_common_dual_type(x::AbstractArray{V}, ::Type{V}) where V<:Dual = x # already of desired type
-promote_common_dual_type(x::Union{String, Symbol, Nothing, Missing, Function}, DT::Type{<:Dual}) = x # non-Dual types
+promote_common_dual_type(x::V, ::Type{<:Dual}) where V<:Union{String, Symbol, Nothing, Missing, Function} = x # non-Dual types
 promote_common_dual_type(x::Dict{K,V}, DT::Type{<:Dual}) where {K,V} = Dict(k => promote_common_dual_type(v,DT) for (k,v) in pairs(x))
 promote_common_dual_type(x::Dict{K,V}, ::Type{V}) where {K,V<:Dual} = x # already of desired type
 promote_common_dual_type(::Type{V1}, ::Type{V2}) where {V1<:Dual,V2<:Dual} = V2 # for Dual types, just return the target Dual
@@ -236,26 +239,18 @@ promote_my_type(::NTuple{N,T}) where {N,T<:Number} = promote_my_type(T)
 promote_my_type(x::Dict{K,V}) where {K,V} = _reduce(values(x))
 promote_my_type(x::Dict{K,V}) where {K,V<:Real} = V === Real ? _reduce(values(x)) : V
 promote_my_type(::Type{Dict{K,V}}) where {K,V} = promote_my_type(V)
-promote_my_type(::String) = Nothing
-promote_my_type(::Symbol) = Nothing
-promote_my_type(::Nothing) = Nothing
-promote_my_type(::Missing) = Nothing
-promote_my_type(::Type{String}) = Nothing
-promote_my_type(::Type{Symbol}) = Nothing
-promote_my_type(::Type{Nothing}) = Nothing
-promote_my_type(::Type{Missing}) = Nothing
-promote_my_type(::Function) = Nothing
-promote_my_type(::Type{Function}) = Nothing
+promote_my_type(::V) where V<:Union{String,Symbol,Nothing,Missing,Function} = Nothing
+promote_my_type(::Type{V}) where V<:Union{String,Symbol,Nothing,Missing,Function} = Nothing
 promote_my_type(::Type{T}) where T<:Array = promote_my_type(T.parameters[1])
 promote_my_type(x::AbstractArray) = _reduce(x)
-function promote_my_type(x::AbstractArray{V}) where V<:Number 
+function promote_my_type(x::X) where {V<:Number,X<:AbstractArray{V}} 
     if V === Real 
         return _reduce(x)
     else 
         return V
     end
 end
-function promote_my_type(::AbstractArray{V})::Union{Type{<:Number}, Type{Nothing}} where V<:Union{<:String, <:Symbol, Nothing, Missing} 
+function promote_my_type(::X) where {V<:Union{String, Symbol, Nothing, Missing, Function},X<:AbstractArray{V}}
     return Nothing
 end
 

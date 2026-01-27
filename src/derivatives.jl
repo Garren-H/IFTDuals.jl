@@ -38,9 +38,11 @@ extract_values_field_from_partials(parts::Partials{1,V}) where {V} = parts.value
 Extracts the `partials` field as a `Tuple` from a `ForwardDiff.Dual`. When an index `idx` is provided, it extracts the `idx`-th partial derivative.
 """
 extract_partials_field_from_dual(x::Dual{T,V,N}) where {T,V,N} = extract_values_field_from_partials(partials(x))
-extract_partials_field_from_dual(x::AbstractVector{<:Dual{T,V,N}}) where {T,V,N} = map(extract_partials_field_from_dual, x)
-extract_partials_field_from_dual(x::Dual{T,V,N},idx::Union{T2,Vector{T2}}) where {T,V,N,T2<:Union{Int,CartesianIndex{1}}} = x.partials[idx]
-extract_partials_field_from_dual(x::AbstractVector{<:Dual{T,V,N}},idx::Union{T2,Vector{T2}}) where {T,V,N,T2<:Union{Int,CartesianIndex{1}}} = map(xi -> extract_partials_field_from_dual(xi,idx), x)
+extract_partials_field_from_dual(x::X) where {X<:AbstractVector{<:Dual}} = map(extract_partials_field_from_dual, x)
+extract_partials_field_from_dual(x::Dual{T,V,N},idx::ID) where {T,V,N,T2<:Union{Int,CartesianIndex{1}},ID<:Union{T2,Vector{T2}}} = x.partials[idx]
+extract_partials_field_from_dual(x::X,idx::ID) where {T2<:Union{Int,CartesianIndex{1}},X<:AbstractVector{<:Dual},ID<:Union{T2,Vector{T2}}} = map(x) do xi 
+    extract_partials_field_from_dual(xi,idx)
+end
 
 """
 ```julia
@@ -49,11 +51,13 @@ extract_partials_field_from_dual(x::AbstractVector{<:Dual{T,V,N}},idx::Union{T2,
 ```
 Stacks the partial derivatives of a Dual (or Vector of Duals) into a Matrix of M x N, where M is the size of the input, N is the number of partials. When an index `idx` is provided, it returns a Vector, the 'idx'-th partial derivative(s) (`idx`-th column of the stacked Matrix but efficiently).
 """
-custom_stack(x::Union{V,AbstractArray{V}}) where {V<:Dual} = stack(extract_partials_field_from_dual,x;dims=1)
-function custom_stack(x::Union{V,<:AbstractArray{V}},idx::Union{T2,Vector{T2}}) where {V<:Dual,T2<:Union{Int,CartesianIndex{1}}}
+custom_stack(x::X) where {V<:Dual,X<:AbstractArray{V}} = stack(extract_partials_field_from_dual,x;dims=1)
+custom_stack(x::Dual{T,V,N}) where {T,V,N} = SVector{N,V}(partials(x)) # extract single partials as vector, SVector ore efficient than allocating a vector
+function custom_stack(x::X,idx::ID) where {V<:Dual,T2<:Union{Int,CartesianIndex{1}},X<:AbstractArray{V},ID<:Union{T2,Vector{T2}}}
     func = Base.Fix2(extract_partials_field_from_dual,idx)
     return stack(func,x;dims=1)
 end
+custom_stack(x::V,idx::ID) where {V<:Dual,T2<:Union{Int,CartesianIndex{1}},ID<:Union{T2,Vector{T2}}} = extract_partials_field_from_dual(x,idx) # extract single partial
 custom_stack(x::Dual{T,V,1}) where {T,V} = extract_partials_field_from_dual(x) # extract single partial
 
 # Functions to actually compute higher order derivatives
@@ -63,8 +67,10 @@ custom_stack(x::Dual{T,V,1}) where {T,V} = extract_partials_field_from_dual(x) #
 ```
 Creates a `Dual` number of type `DT` with value `y` and partial derivatives given by `parts`, which can be a scalar or a vector of partial derivatives. If `y` is a vector, it creates a Vector of `Dual` numbers accordingly.
 """
-create_partials_duals(y::V,DT::Type{<:Dual{T,V,N}},PT::Type{<:Partials{N,V}},parts::Union{V,<:AbstractVector{V}}) where {T,V,N} = DT(y,PT(Tuple(parts)));
-create_partials_duals(y::AbstractVector{V},DT::Type{<:Dual{T,V,N}},PT::Type{<:Partials{N,V}},parts::AbstractVecOrMat{V}) where {T,V,N} = [DT(y[i], PT(Tuple(row))) for (i,row) in enumerate(eachrow(parts))];
+create_partials_duals(y::V,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,P<:Union{V,<:AbstractVector{V}}} = DT(y,PT(NTuple{N,V}(parts)))
+create_partials_duals(y::Y,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,Y<:AbstractVector{V},P<:AbstractVecOrMat{V}} = map(y,eachrow(parts)) do yi, pi
+    create_partials_duals(yi, DT, PT, pi)
+end
 
 """
 ```julia
@@ -72,11 +78,53 @@ create_partials_duals(y::AbstractVector{V},DT::Type{<:Dual{T,V,N}},PT::Type{<:Pa
 ```
 Solves the implicit function theorem system for a single directional derivative and constructs `Dual` numbers of type `DT` with the computed partial derivatives. This is part of a recursive process to compute higher-order derivatives.
 """
-function solve_ift(y::Union{V,<:AbstractVector{V}},BNi::Union{V,AbstractVecOrMat{V}},neg_A,DT::Type{<:Dual{T,V,N}}) where {T,V<:Real,N} # case for a single directional derivative
+function solve_ift(y::Y,BNi::B,neg_A,DT::Type{Dual{T,V,N}}) where {T,V<:Real,N,Y<:AbstractVector{V},B<:AbstractVecOrMat{V}} # vector case
+    ldiv!(neg_A,BNi) # Solve for directional derivatives
+    return create_partials_duals(y,DT,Partials{N,V},BNi) # construct Dual numbers
+end
+
+function solve_ift(y::V,BNi::SVector{N,V},neg_A,DT::Type{Dual{T,V,N}}) where {T,V<:Real,N} # BNi is a SVector from custom_stack
+    return create_partials_duals(y,DT,Partials{N,V},BNi/neg_A) # construct Dual numbers
+end
+
+function solve_ift(y::V,BNi::V,neg_A,DT::Type{Dual{T,V,N}}) where {T,V<:Real,N} # scalar case
     #assert ForwardDiff.npartials(DT) == 1 "For this function call, the Dual type must have only one directional derivative."
-    parts = neg_A \ BNi # Solve for directional derivatives
-    PT = Partials{N,V}
-    return create_partials_duals(y,DT,PT,parts) # construct Dual numbers
+    BNi /= neg_A # Solve for directional derivatives
+    return create_partials_duals(y,DT,Partials{N,V},BNi) # construct Dual numbers
+end
+
+function store_ift_cache(y::V,BNi::DT,neg_A,PT=Partials{1,V}) where {T,V<:Real,DT<:Dual{T,V,1}} # offload logic to be more efficient with storage types
+    BNi_i = extract_partials_field_from_dual(BNi,1) # get nested Duals
+    dy = extract_partials_field_from_dual(y,1) # get nested Duals
+    dual_cache = ift_(dy,BNi_i,neg_A)
+    return create_partials_duals(y,DT,PT,dual_cache) # construct Dual numbers
+end
+
+function store_ift_cache(y::V,BNi::DT,neg_A,PT=Partials{N,V}) where {T,V<:Real,N,DT<:Dual{T,V,N}} # offload logic to be more efficient with storage types
+    dual_cache = Vector{V}(undef, N)
+    for i in 1:N
+        BNi_i = extract_partials_field_from_dual(BNi,i) # get nested Duals
+        dy = extract_partials_field_from_dual(y,i) # get nested Duals
+        dual_cache[i] = ift_(dy,BNi_i,neg_A)
+    end
+    return create_partials_duals(y,DT,PT,dual_cache) # construct Dual numbers
+end
+
+function store_ift_cache(y::Y,BNi::B,neg_A,PT=Partials{1,V}) where {T,V<:Real,DT<:Dual{T,V,1},Y<:AbstractVector{V},B<:AbstractVector{DT}} # offload logic to be more efficient with storage types
+    BNi_i = extract_partials_field_from_dual(BNi,1) # get nested Duals
+    dy = extract_partials_field_from_dual(y,1) # get nested Duals
+    dual_cache = ift_(dy,BNi_i,neg_A)
+    return create_partials_duals(y,DT,PT,dual_cache) # construct Dual numbers
+end
+
+function store_ift_cache(y::Y,BNi::B,neg_A,PT=Partials{N,V}) where {T,V<:Real,N,DT<:Dual{T,V,N},Y<:AbstractVector{V},B<:AbstractVector{DT}} # offload logic to be more efficient with storage types
+    dual_cache = Matrix{V}(undef, length(y), N)
+    for i in 1:N
+        BNi_i = extract_partials_field_from_dual(BNi,i) # get nested Duals
+        dy = extract_partials_field_from_dual(y,i) # get nested Duals
+        dual_cache[:,i] .= ift_(dy,BNi_i,neg_A)
+    end
+    return create_partials_duals(y,DT,PT,dual_cache) # construct Dual numbers
 end
 
 """
@@ -85,19 +133,11 @@ end
 ```
 For a given order of differentiation, recusrively computes all directional derivatives using the implicit function theorem and recreates the appropriate `ForwardDiff.Dual` structure.
 """
-function ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{Dual{T,V,N},<:AbstractVector{Dual{T,V,N}}},neg_A) where {T,V<:Real,N} # case for a single directional derivative
+function ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{DT,<:AbstractVector{DT}},neg_A) where {T,V<:Real,N,DT<:Dual{T,V,N}} # case for a single directional derivative
     if V <: Dual # recursion
-        DT = Dual{T,V,N}
-        PT = Partials{N,V}
-        vect_duals = N == 1 ? Vector{V}(undef, length(y)) : Matrix{V}(undef, length(y), N) # Storage for the extracted directional derivatives of order N-1
-        for i in 1:N
-            BNi_i = extract_partials_field_from_dual(BNi,i) # get nested Duals
-            dy = extract_partials_field_from_dual(y,i) # get nested Duals
-            vect_duals[:,i] = ift_(dy,BNi_i,neg_A) # recursive call, creates nested Dual partials
-        end        
-        return create_partials_duals(y,DT,PT,vect_duals) # construct Dual numbers
+        return return store_ift_cache(y,BNi,neg_A)
     end
-    return solve_ift(y,custom_stack(BNi),neg_A,Dual{T,V,N}) # base case, solve for directional derivatives and create Duals
+    return solve_ift(y,custom_stack(BNi),neg_A,DT) # base case, solve for directional derivatives and create Duals
 end
 
 """
@@ -106,7 +146,7 @@ end
 ```
 Recursively applies the implicit function theorem to compute higher-order derivatives up to `der_order`. It evaluates the function `f` at the current `y`, solves for the directional derivatives using `ift_`, and promotes `y` to the next order of `Dual` numbers as needed.
 """
-function ift_recursive(y::Union{V,<:AbstractVector{V}},f::Function,tups,neg_A,der_order::Int) where {V<:Real}
+function ift_recursive(y::Y,f::F,tups,neg_A,der_order::Int) where {V<:Real,Y<:Union{V,<:AbstractVector{V}},F<:Function}
     if der_order == 1 # inner most call
         BNi = f(y,tups) # evaluate function at primal y
         return ift_(y,BNi,neg_A) # first order IFT and return Dual
@@ -124,34 +164,22 @@ end
 ```
 Function to compute higher-order derivatives using the implicit function theorem and (nested) Dual numbers. 
 Input:
-    `y`    : primal input solution to the root finnding problem (scalar or vector)
-    `f`    : function handle that takes 'y' and 'tups' as inputs
-    `tups` : tuple or data structure containing Dual numbers indicating the differentiation structure
+- `y`    : primal input solution to the root finnding problem (scalar or vector)
+- `f`    : function handle that takes 'y' and 'tups' as inputs
+- `tups` : tuple or data structure containing Dual numbers indicating the differentiation structure
 
 `f(y,tups) = 0` is assumed to define the implicit relationship between `y` and values given as `tups`.
 
 **Note**: This function currently does not support mixed-mode AD, i.e. differentiating wrt different variables given as nested Duals. As a workaround you may concatenate all variables into a single vector and differentiate jointly.
 """
-function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups) where {V<:Real}
-    der_order,DT = check_multiple_duals_and_return_order(tups) # check for multiple duals)
-    der_order == 0 && return y # No differentiation needed
-    # Get primal value to compute Fy
-    tups_primal = Constant(nested_pvalue(tups))
-    if y isa AbstractVector
-        neg_A = -jacobian(f,AFD,y,tups_primal)
-        checksquare(neg_A) # Ensure square matrix
-        neg_A = lu(neg_A) # LU factorization for later solves
-    else
-        neg_A = -derivative(f,AFD,y,tups_primal)
-    end
-    der_order == 1 && return ift_recursive(y,f,tups,neg_A,der_order) # no promotion needed
-    return ift_recursive(y,f,promote_common_dual_type(tups,DT),neg_A,der_order) # promote Duals in tups to common Dual type
+function ift(y::Y,f::F,tups) where {V<:Real,Y<:Union{V,<:AbstractVector{V}},F<:Function}
+    tups_primal = nested_pvalue(tups)
+    return ift(y,f,tups,tups_primal)
 end
 
-function ift(y::Union{V,<:AbstractVector{V}},f::Function,tups,tups_primal) where {V<:Real}
+function ift(y::Y,f::F,tups,tups_primal) where {V<:Real,Y<:Union{V,<:AbstractVector{V}},F<:Function}
     der_order,DT = check_multiple_duals_and_return_order(tups) # check for multiple duals)
     der_order == 0 && return y # No differentiation needed
-    # Get primal value to compute Fy
     if y isa AbstractVector
         neg_A = -jacobian(f,AFD,y,Constant(tups_primal))
         checksquare(neg_A) # Ensure square matrix

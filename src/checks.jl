@@ -15,10 +15,10 @@ function check_multiple_duals_and_return_order(x)
     lenT = length(T.parameters)
     while et <: Dual
         et = check_multiple_duals(et,N,T)
-        if lenT == 2 && T.parameters[2] <: Dual
-            T = tagtype(T.parameters[2]) # go one level deeper
-        end
+        T = get_tag_val(T)
     end
     return order_,common_et
 end
 
+get_tag_val(::Type{Tag{F,V}}) where {F,V<:Dual} = tagtype(V) # get inner tag type
+get_tag_val(T::Type{Tag{F,V}}) where {F,V} = T # return as is
