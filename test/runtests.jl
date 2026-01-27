@@ -1,6 +1,7 @@
-using IFTDuals
-using Test
+using IFTDuals,DifferentiationInterface,Test
+import ForwardDiff
 import ForwardDiff: Dual, Tag, Partials
+const AFD = AutoForwardDiff()
 
 @testset "Compute derivatives for: Vector, Tuple and Struct" begin
     struct MyStruct{T<:Real}
@@ -114,3 +115,33 @@ import ForwardDiff: Dual, Tag, Partials
         @test x₁_struct ≈ x₁ₜ
     end
 end
+
+@testset "Compute value,gradient and hessian for Vector->Scalar mappings" begin
+    f(y,x) = exp(y) - sum(abs2,x)
+    h(x) = log(sum(abs2, x))
+    x = [1.0, 2.0, -3.0]
+    test_f(x) = begin
+        xp = nested_pvalue(x)
+        y = h(xp)
+        ift(y,f,x,xp)
+    end
+    y_true = value_gradient_and_hessian(h,AFD,x)
+    y_ift = value_gradient_and_hessian(test_f,AFD,x)
+    @test all(y_ift .≈ y_true)
+end
+
+@testset "Compute value,derivative and second derivative for Scalar->Scalar mappings" begin
+    f(y,x) = exp(y) - x^3
+    h(x) = 3*log(x)
+    x = 2.0
+    test_f(x) = begin
+        xp = nested_pvalue(x)
+        y = h(xp)
+        ift(y,f,x,xp)
+    end
+    y_true = value_derivative_and_second_derivative(h,AFD,x)
+    y_ift = value_derivative_and_second_derivative(test_f,AFD,x)
+    @test all(y_ift .≈ y_true)
+end        
+
+
