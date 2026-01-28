@@ -18,7 +18,24 @@ function promote_dual_order(y::V, DT::Type{<:Dual{T,V,N}}) where {T,V,N}
         return DT(y,parts)
     end
 end
-promote_dual_order(y::AbstractVector{V}, DT::Type{<:Dual{T,V,N}}) where {T,V,N} = map(d -> promote_dual_order(d,DT), y)
+promote_dual_order(y::Y, DT::Type{Dual{T,V,N}}) where {T,V,N,Y<:AbstractVector{V}} = PromoteDualVector(y, DT) 
+
+# Wrapper for Arrays to promote from one Dual to another without allocating; assuming symmetry of partials.
+"""
+```julia
+    PromoteDualVector{T,V} <: AbstractVector{T}
+```
+Wrapper to promote a Vector of type `V` with concrete numeric elements to a Vector of `Dual` numbers of type `T`, without allocating a new array.
+"""
+struct PromoteDualVector{T,V} <: AbstractVector{T}
+    vec::V
+end
+function PromoteDualVector(vec::VV, DT::Type{Dual{T,V,N}}) where {T,V,N,VV<:AbstractVector{V}}
+    return PromoteDualVector{DT,VV}(vec)
+end
+Base.size(A::PromoteDualVector) = size(A.vec)
+Base.getindex(x::PromoteDualVector{DT,V},i) where {DT,V} = promote_dual_order(getindex(x.vec,i), DT)
+Base.eltype(::PromoteDualVector{DT,V}) where {DT,V} = DT
 
 # Functions to extract relevant data from Duals
 """
@@ -67,7 +84,7 @@ custom_stack(x::Dual{T,V,1}) where {T,V} = extract_partials_field_from_dual(x) #
 ```
 Creates a `Dual` number of type `DT` with value `y` and partial derivatives given by `parts`, which can be a scalar or a vector of partial derivatives. If `y` is a vector, it creates a Vector of `Dual` numbers accordingly.
 """
-create_partials_duals(y::V,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,P<:Union{V,<:AbstractVector{V}}} = DT(y,PT(NTuple{N,V}(parts)))
+create_partials_duals(y::V,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,P<:Union{V,<:AbstractVector{V},<:AbstractArray{V,0}}} = DT(y,PT(NTuple{N,V}(parts)))
 function create_partials_duals(y::Y,DT::Type{Dual{T,V,N}},PT::Type{Partials{N,V}},parts::P) where {T,V,N,Y<:AbstractVector{V},P<:AbstractVecOrMat{V}}
     out = Vector{DT}(undef, length(y)) # preallocate output
     @inbounds for i in eachindex(y)
@@ -137,9 +154,9 @@ end
 ```
 For a given order of differentiation, recusrively computes all directional derivatives using the implicit function theorem and recreates the appropriate `ForwardDiff.Dual` structure.
 """
-function ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{DT,<:AbstractVector{DT}},neg_A) where {T,V<:Real,N,DT<:Dual{T,V,N}} # case for a single directional derivative
+function ift_(y::Y,BNi::B,neg_A) where {T,V<:Real,N,DT<:Dual{T,V,N},Y<:Union{V,<:AbstractVector{V}},B<:Union{DT,<:AbstractVector{DT}}} # case for a single directional derivative
     if V <: Dual # recursion
-        return return store_ift_cache(y,BNi,neg_A)
+        return store_ift_cache(y,BNi,neg_A)
     end
     return solve_ift(y,custom_stack(BNi),neg_A,DT) # base case, solve for directional derivatives and create Duals
 end
@@ -184,9 +201,10 @@ end
 function ift(y::Y,f::F,tups,tups_primal) where {V<:Real,Y<:Union{V,<:AbstractVector{V}},F<:Function}
     der_order,DT = check_multiple_duals_and_return_order(tups) # check for multiple duals)
     der_order == 0 && return y # No differentiation needed
-    if y isa AbstractVector
-        neg_A = -jacobian(f,AFD,y,Constant(tups_primal))
+    if Y <: AbstractVector
+        neg_A = jacobian(f,AFD,y,Constant(tups_primal))::AbstractMatrix{V}
         checksquare(neg_A) # Ensure square matrix
+        neg_A .*= -one(V)
         neg_A = lu(neg_A) # LU factorization for later solves
     else
         neg_A = -derivative(f,AFD,y,Constant(tups_primal))
