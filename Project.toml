@@ -1,6 +1,6 @@
 name = "IFTDuals"
 uuid = "e48d2a1f-af84-496e-b4fe-d99c19dbdf31"
-authors = ["Garren-H <garren382@gmail.com>"]
+authors = ["Garren Hermanus <garren382@gmail.com>"]
 version = "0.1.0"
 
 [deps]
