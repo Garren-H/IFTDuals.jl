@@ -34,5 +34,3 @@ function nested_pvalue(x::V) where {T,N,V<:AbstractArray{T,N}} # handle arrays o
     TT = nested_pvalue(T)
     return NestedPValueArray{TT,N,V}(x)
 end
-
-
