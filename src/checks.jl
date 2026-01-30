@@ -1,24 +1,19 @@
-function check_multiple_duals(et,N,T) # Number of partials and TagType are shared across nested levels
-    N === npartials(et) || throw(MultiTagError())
-    T === tagtype(et) || throw(MultiTagError())
-    et = valtype(et)
-    return et
+function check_mixed_tags_and_return_order(x)
+    et = get_common_dual_type(x) # get common supertype, should be Dual
+    et <: Dual || return 0,et,false# if not Dual, we are done
+    der_order = order(et)
+    tag_is_mixed = der_order == 1 ? false : check_if_mixed_tag(et)
+    return der_order,et,tag_is_mixed
 end
 
-function check_multiple_duals_and_return_order(x)
-    common_et = get_common_dual_type(x) # get common supertype, should be Dual
-    common_et <: Dual || return 0,common_et# if not Dual, we are done
-    order_ = order(common_et)
-    et = common_et
+function check_if_mixed_tag(et::Type{<:Dual})
     N = npartials(et)
-    T = tagtype(et)
-    lenT = length(T.parameters)
-    while et <: Dual
-        et = check_multiple_duals(et,N,T)
-        T = get_tag_val(T)
+    Tf = tagtype(et).parameters[1] # function signature in tag type
+    tag_is_mixed = false
+    while et <: Dual && !tag_is_mixed
+        N === npartials(et) || (tag_is_mixed = true; break)
+        Tf === tagtype(et).parameters[1] || (tag_is_mixed = true; break) # Only check if function signature in tag types differ. Second argument is value type, which may differ in nested duals
+        et = valtype(et)
     end
-    return order_,common_et
+    return tag_is_mixed
 end
-
-get_tag_val(::Type{Tag{F,V}}) where {F,V<:Dual} = tagtype(V) # get inner tag type
-get_tag_val(T::Type{Tag{F,V}}) where {F,V} = T # return as is
