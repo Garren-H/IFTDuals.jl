@@ -219,10 +219,10 @@ struct MyStruct{T<:Number}
 end
 
 promote_my_type(::MyStruct{T}) where T<:Number = T # similar to eltype
-promote_my_type(::Type{MyStruct{T}}) where T<:Number = T # my be needed where tups contains NTuple{N,MyStruct{T}} types
+promote_my_type(::Type{MyStruct{T}}) where T<:Number = T # my be needed where args contains NTuple{N,MyStruct{T}} types
 ```
 
-Internally we call `promote_my_type(tups)` which obtains the numeric types from each entry in tups and then reduces over them to get the common numeric supertype. **This is hence a combination of `Base.eltype` and `Base.promote_type` but specialized to only consider numeric types**. An attempt is made to extract the numeric type(s) from custom structs, however this may fail or be non-performant. It is hence highly recommended to provide your own method for custom data structures.
+Internally we call `promote_my_type(args)` which obtains the numeric types from each entry in args and then reduces over them to get the common numeric supertype. **This is hence a combination of `Base.eltype` and `Base.promote_type` but specialized to only consider numeric types**. An attempt is made to extract the numeric type(s) from custom structs, however this may fail or be non-performant. It is hence highly recommended to provide your own method for custom data structures.
 """
 promote_my_type(::Type{T}) where T<:Number = T
 promote_my_type(::Type{Any}) = throw(AnyTypeError())
