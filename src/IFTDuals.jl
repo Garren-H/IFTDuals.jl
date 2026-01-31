@@ -8,10 +8,9 @@ const AFD = AutoForwardDiff() # Alias for AutoForwardDiff
 const ScalarOrAbstractVec{T} = Union{T, AbstractVector{T}}
 const ScalarOrAbstractVecOrMat{T} = Union{T, AbstractVecOrMat{T}}
 
-include("errors.jl")
 include("checks.jl")
 include("utils.jl")
 include("derivatives.jl")
-include("primalarray.jl")
+include("abstractarrays.jl")
 
 end
