@@ -7,9 +7,12 @@ makedocs(
         prettyurls = get(ENV, "CI", nothing) == "true"
     ),
     modules = [IFTDuals],
+    checkdocs = :exports,
     pages = [
         "Home" => "index.md",
-        "API" => "api.md",
+        "Examples" => "examples.md",
+        "Advanced Usage" => "advanced.md",
+        "API Reference" => "api.md",
     ]
 )
 

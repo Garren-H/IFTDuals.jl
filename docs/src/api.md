@@ -1,8 +1,18 @@
 # API Reference
 
-```@index
+This page provides detailed documentation for the 5 exported functions in IFTDuals.jl.
+
+## Main Function
+
+```@docs
+ift
 ```
 
-```@autodocs
-Modules = [IFTDuals]
+## Utility Functions
+
+```@docs
+pvalue
+nested_pvalue
+promote_common_dual_type
+promote_my_type
 ```
