@@ -89,9 +89,9 @@ end
     nested_pvalue(x::V) where V
 ```
 Extracts the innermost primal value or types from generic structures containing Duals. It recursively applies 
-`pvalue` until the innermost primal value/type is not a Dual. Similar to [`pvalue'](@ref), for custom structs
+`pvalue` until the innermost primal value/type is not a Dual. Similar to `pvalue', for custom structs
 `nested_pvalue` is aplied to all fields in the struct. For custom structs it is recommended to provide 
-your own method for `nested_pvalue`, similar to [`pvalue`](@ref). 
+your own method for `nested_pvalue`, similar to `pvalue`. 
 
 Example:
 ```julia
@@ -240,7 +240,7 @@ end
 ```julia
     get_common_dual_type(x)
 ```
-Gets the common Dual supertype from the Dual numbers contained within generic data structures by executing [`promote_my_type`](@ref).
+Gets the common Dual supertype from the Dual numbers contained within generic data structures by executing `promote_my_type`.
 If no Duals are present, returns the common numeric supertype. And if no numeric types are present, it will error.
 """
 function get_common_dual_type(x)
