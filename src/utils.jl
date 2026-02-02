@@ -19,8 +19,8 @@ needs_promotion(V1::Type, V2::Type{<:Dual}) = check_eltypes(V1) && (V1 != V2)
     pvalue(x::V) where V
     pvalue(::Type{V}) where V
 ```
-Extracts the value field of Duals contained within generic data structures. `pvalue(x::V)` return [`ForwardDiff.value(x)`](@ref), and
-pvalue(::Type{V}) returns [`ForwardDiff.valtype(V)`](@ref). For structures containing multiple types (e.g. Tuples, Structs, Arrays of 
+Extracts the value field of Duals contained within generic data structures. `pvalue(x::V)` return `ForwardDiff.value(x)`, and
+pvalue(::Type{V}) returns `ForwardDiff.valtype(V)`. For structures containing multiple types (e.g. Tuples, Structs, Arrays of 
 structs, Dicts) it loops through all fields/entries in the data structure and performs `pvalue` on each entry. For custom structs it 
 is recommended to provide your own method for `pvalue` which only applies pvalue to the fields which may contain Duals.
 
