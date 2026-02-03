@@ -3,15 +3,16 @@ const noADTypes = Union{String, Symbol, Nothing, Missing, Function}
 # Functions to extract the inner most primal value from nested Duals in generic Data structures
 """
 ```julia
-    check_eltypes(::Type{V}) where V
-    check_eltypes(x::Tuple)
+    has_duals_type(::Type{V}) where V
+    has_duals_type(x::Tuple)
 ```
 Checks if the eltypes contain any Duals. If it does, returns true. This is a helper function intended for internal use.
 """
-check_eltypes(V::Type) = V<:Dual
-check_eltypes(x::Tuple) = any(check_eltypes, x)
-check_eltypes(x::AbstractArray) = any(check_eltypes, x)
-needs_promotion(V1::Type, V2::Type{<:Dual}) = check_eltypes(V1) && (V1 != V2)
+has_duals_type(V::Type) = V<:Dual
+has_duals_type(x::Tuple) = any(has_duals_type, x)
+has_duals_type(x::AbstractArray) = any(has_duals_type, x)
+has_dual(x) = has_duals_type(promote_my_type(x)) # helper which acts on instances
+needs_promotion(V1::Type, V2::Type{<:Dual}) = has_duals_type(V1) && (V1 != V2)
 
 # Functions to extract the value field from Duals in generic Data structures
 """
@@ -71,14 +72,14 @@ pvalue(x::T) where T<:noADTypes = x # non-Dual types
 end
 function pvalue(x::T) where T # handle structs specifically 
     if isstructtype(T)
-        check_eltypes(promote_my_type(x)) || return x # base case when no Duals are present
+        has_dual(x) || return x # base case when no Duals are present
         return pvalue_structs(x)
     end
     return x # non-Dual types
 end
 pvalue(x::V) where {T<:Dual,N,V<:AbstractArray{T,N}} = PValueArray(x)
 function pvalue(x::V) where {T,N,V<:AbstractArray{T,N}} # handle arrays of mixed or non-Dual types
-    !check_eltypes(promote_my_type(x)) && return x # no Duals, return original array
+    !has_dual(x) && return x # no Duals, return original array
     TT = pvalue(T)
     return PValueArray{TT,N,V}(x)
 end
@@ -141,7 +142,7 @@ end
 
 function nested_pvalue(x::T) where T
     if isstructtype(T) #attempt to reconstruct struct type with primal eltypes
-        check_eltypes(promote_my_type(x)) || return x # base case when no Duals are present
+        has_dual(x) || return x # base case when no Duals are present
         return nested_pvalue_structs(x) 
     end
     return x # non-Dual types
@@ -153,7 +154,7 @@ nested_pvalue(x::Dict{K,V}) where {K,V} = Dict(k => nested_pvalue(v) for (k,v) i
 nested_pvalue(x::V) where V<:noADTypes = x # non-Dual types
 nested_pvalue(x::V) where {T<:Dual,N,V<:AbstractArray{T,N}} = NestedPValueArray(x)
 function nested_pvalue(x::V) where {T,N,V<:AbstractArray{T,N}} # handle arrays of mixed or non-Dual types
-    !check_eltypes(promote_my_type(x)) && return x # no Duals, return original array
+    !has_dual(x) && return x # no Duals, return original array
     TT = nested_pvalue(T)
     return NestedPValueArray{TT,N,V}(x)
 end
@@ -229,7 +230,7 @@ end
 
 function promote_common_dual_type(x::T, DT::Type{<:Dual}) where T
     if isstructtype(T)
-        check_eltypes(promote_my_type(x)) || return x # base case when no Duals are present
+        has_dual(x) || return x # base case when no Duals are present
         return promote_common_dual_type_structs(x, DT)
     end
     return x # non-Dual types

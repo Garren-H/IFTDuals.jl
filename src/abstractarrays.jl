@@ -95,13 +95,13 @@ struct PromoteToDualArray{T,N,V,DT<:Dual} <: AbstractArray{T,N}
 end
 function PromoteToDualArray(vec::VV, DT::Type{<:Dual}) where {N,V,VV<:AbstractArray{V,N}}
     V === DT && return vec # already of desired Dual type
-    check_eltypes(promote_my_type(vec)) || return vec # elements do not contain duals
+    has_dual(vec) || return vec # elements do not contain duals
     return PromoteToDualArray{V,N,VV,DT}(vec)
 end
 Base.size(A::PromoteToDualArray) = size(A.vec)
 Base.getindex(x::PromoteToDualArray{T,N,V,DT},I...) where {T,N,V,DT} = begin
     el = getindex(x.vec,I...)
-    check_eltypes(promote_my_type(el)) || return el # element does not contain duals
+    has_dual(el) || return el # element does not contain duals
     return promote_common_dual_type(el, DT)
 end
 Base.getindex(x::PromoteToDualArray{T,N,V,DT},I...) where {T<:Dual,N,V,DT} = begin # skip check if T is already a Dual
