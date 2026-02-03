@@ -17,8 +17,6 @@ makedocs(
     ]
 )
 
-#=deploydocs(=#
-#=    repo = "github.com/Garren-H/IFTDuals.jl.git",=#
-#=)=#
-#
-# Kᵗʰ
+deploydocs(
+    repo = "github.com/Garren-H/IFTDuals.jl.git",
+)
