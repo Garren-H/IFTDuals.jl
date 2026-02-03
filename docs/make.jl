@@ -9,13 +9,16 @@ makedocs(
     modules = [IFTDuals],
     checkdocs = :exports,
     pages = [
-        "Home" => "index.md",
-        "Examples" => "examples.md",
-        "Advanced Usage" => "advanced.md",
-        "API Reference" => "api.md",
+        "Introduction" => "index.md",
+        "User Documentation" => ["Limitations" => "UserGuide/limitations.md",
+                                 "API Reference" => "UserGuide/api.md",
+                                 "Advanced Usage" => "UserGuide/advanced.md"],
+        "Developer Documentation" => "dev.md",
     ]
 )
 
-deploydocs(
-    repo = "github.com/Garren-H/IFTDuals.jl.git",
-)
+#=deploydocs(=#
+#=    repo = "github.com/Garren-H/IFTDuals.jl.git",=#
+#=)=#
+#
+# Kᵗʰ

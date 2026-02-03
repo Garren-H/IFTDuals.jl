@@ -280,6 +280,12 @@ Optional Input:
 Output:
 - Returns `y` as a Dual number with the appropriate order and partial derivatives computed using the IFT.
 The function works by first determining the order of differentiation and whether mixed tags are present.
+
+!!! warning
+    When mixed tags are detected, but `tag_is_mixed=false` is provided, a check is performed to ensure that the number of partials are consistent across the Dual types in `args`. If inconsistencies are found, an error is thrown. No other checks are performed and it is the user's responsibility to ensure symmetry of partial derivatives in this case.
+
+!!! warning
+    If `args_needs_promotion=false` is provided, it is the user's responsibility to ensure that all Dual types in `args` are of the same type. If the Dual type differs, unexpected behavior may occur.
 """
 function ift(y::Y,f::F,args; DT::DTT=nothing, tag_is_mixed::TM=nothing, args_needs_promotion::Bool=true) where {V<:Real,Y<:ScalarOrAbstractVec{V},F<:Function,DTT<:Union{Nothing,Type{<:Real}},TM<:Union{Nothing,Bool}}
     args_primal = nested_pvalue(args)

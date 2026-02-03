@@ -20,7 +20,7 @@ needs_promotion(V1::Type, V2::Type{<:Dual}) = check_eltypes(V1) && (V1 != V2)
     pvalue(::Type{V}) where V
 ```
 Extracts the value field of Duals contained within generic data structures. `pvalue(x::V)` return `ForwardDiff.value(x)`, and
-pvalue(::Type{V}) returns `ForwardDiff.valtype(V)`. For structures containing multiple types (e.g. Tuples, Structs, Arrays of 
+`pvalue(::Type{V})` returns `ForwardDiff.valtype(V)`. For structures containing multiple types (e.g. Tuples, Structs, Arrays of 
 structs, Dicts) it loops through all fields/entries in the data structure and performs `pvalue` on each entry. For custom structs it 
 is recommended to provide your own method for `pvalue` which only applies pvalue to the fields which may contain Duals.
 
@@ -89,7 +89,7 @@ end
     nested_pvalue(x::V) where V
 ```
 Extracts the innermost primal value or types from generic structures containing Duals. It recursively applies 
-`pvalue` until the innermost primal value/type is not a Dual. Similar to `pvalue', for custom structs
+`pvalue` until the innermost primal value/type is not a Dual. Similar to `pvalue`, for custom structs
 `nested_pvalue` is aplied to all fields in the struct. For custom structs it is recommended to provide 
 your own method for `nested_pvalue`, similar to `pvalue`. 
 
@@ -259,10 +259,8 @@ _reduce(x) = reduce(promote_my_type, x; init=Nothing) # helper function to reduc
 Get the common numeric supertype (Duals) from generic data structures. For non-numeric types 
 (String, Symbol, Nothing, Missing, Function), it returns Nothing. For custom data structures
 the current implementation checks all (nested) fields for numeric types, extracts these numeric
-types and reduces `Base.promote_type` over all numeric types found.
-**This is hence a combination of `Base.eltype` and `Base.promote_type` but specialized to only 
-consider numeric types**. It is hence highly recommended to provide your own method for custom 
-data structures.
+types and reduces `Base.promote_type` over all numeric types found. It is hence highly recommended 
+to provide your own method for custom data structures.
 
 Example:
 ```julia
@@ -289,8 +287,11 @@ We encourage the usage of `promote_my_type` to ensure `T1` and/or `T2` are corre
 promote_my_type(x::MyStruct) = promote_my_type(x.a, x.c)
 ```
 
-**Note**: If `MyStruct` contained a single numeric field (which may contain duals), `MyStruct{T} where T<:Real`, we would 
+If `MyStruct` contained a single numeric field (which may contain duals), `MyStruct{T} where T<:Real`, we would 
 return `promote_my_type(T)`. 
+
+!!! note 
+    This is hence a combination of `Base.eltype` and `Base.promote_type` but specialized to only consider numeric types
 """
 promote_my_type(::Type{T}) where T<:Real = T
 promote_my_type(::Type{Any}) = throw(AnyTypeError())
