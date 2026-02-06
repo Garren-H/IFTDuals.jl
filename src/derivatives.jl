@@ -327,8 +327,7 @@ function ift(y::Y,f::F,args,args_primal,der_order::I,tag_is_mixed::Bool) where {
     if Y <: AbstractVector
         neg_A = jacobian(f,AFD,y,Constant(args_primal))::AbstractMatrix{V}
         checksquare(neg_A) # Ensure square matrix
-        neg_A .*= -one(V)
-        neg_A = lu(neg_A) # LU factorization for later solves
+        neg_A = lu(-one(V) * neg_A) # LU factorization for later solves
     else
         neg_A = -derivative(f,AFD,y,Constant(args_primal))
     end

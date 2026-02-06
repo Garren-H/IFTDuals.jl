@@ -1,3 +1,4 @@
+using StaticArrays
 @testset "Compute derivatives for: Vector, Tuple and Struct" begin
     struct MyStruct{T<:Real}
         θ::Vector{T}
@@ -108,6 +109,13 @@
     @testset "Struct Input: 1st order Duals" begin
         x₁_struct = get_x(θ_struct₁);
         @test x₁_struct ≈ x₁ₜ
+    end
+
+    # test using SVector as input
+    θ_svec₁ = SVector{N}(θ₁);
+    @testset "SVector Input: 1st order Duals" begin
+        x₁_svec = get_x(θ_svec₁);
+        @test x₁_svec ≈ x₁ₜ
     end
 end
 
