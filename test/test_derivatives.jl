@@ -10,6 +10,7 @@ using StaticArrays
         f3 = θ[3]*x[1] + θ[4]*x[3] + θ[5]
         return [f1, f2, f3]
     end
+    f_static(x,θ) = SVector{3}(f(x,θ));
 
     closed_form_solution(θ; plusmin::Symbol=:plus) = begin
         c = θ[5]^2 / θ[4]^2 - θ[1]^2
@@ -112,10 +113,18 @@ using StaticArrays
     end
 
     # test using SVector as input
-    θ_svec₁ = SVector{N}(θ₁);
-    @testset "SVector Input: 1st order Duals" begin
-        x₁_svec = get_x(θ_svec₁);
+    get_x_SVector(θ;tag_is_mixed::Bool=false,plusmin::Symbol=:plus) = begin
+        θp = nested_pvalue(θ)
+        x = SVector{3}(closed_form_solution(θp; plusmin=plusmin))
+        return ift(x,f_static,θ,θp;tag_is_mixed=tag_is_mixed)
+    end
+    @testset "SVector Input: 1st and 2nd order using both single and mixed tags" begin
+        x₁_svec = get_x_SVector(θ₁; tag_is_mixed=false);
         @test x₁_svec ≈ x₁ₜ
+        x₂_svec = get_x_SVector(θ₂; tag_is_mixed=true);
+        @test x₂_svec ≈ x₂ₜ
+        x₂_svec = get_x_SVector(θ₂; tag_is_mixed=false);
+        @test x₂_svec ≈ x₂ₜ
     end
 end
 
@@ -140,9 +149,90 @@ end
     test_f(x) = begin
         xp = nested_pvalue(x)
         y = h(xp)
-        ift(y,f,x,xp)
+        ift(y,f,x,xp;tag_is_mixed=true)
     end
     y_true = value_derivative_and_second_derivative(h,AFD,x)
     y_ift = value_derivative_and_second_derivative(test_f,AFD,x)
     @test all(y_ift .≈ y_true)
+    test_f_mixed(x) = begin
+        xp = nested_pvalue(x)
+        y = h(xp)
+        ift(y,f,x,xp;tag_is_mixed=true)
+    end
+    y_ift_mixed = value_derivative_and_second_derivative(test_f_mixed,AFD,x)
+    @test all(y_ift_mixed .≈ y_true)
 end 
+
+@testset "Mixed tags: Arbitrary order derivatives" begin
+    # some functions to test with
+    g1(x::Real, y::Real, w::Real) = exp(sin(x*y*w) + x^2*y + y^2*w + w^2*x) # Scalar -> Scalar mappings
+    g2(x::Real, y::Real, w::Real) = [exp(sin(x*y*w) + x*y),exp(cos(x^2*w + y^2)),exp(sin(x + y + w + x*y*w))] # Scalar -> Vector mappings
+    g3(x::AbstractVector, y::AbstractVector, w::Real) = begin # Vector -> Scalar mappings
+        Sx = sum(x)
+        Sy = sum(y)
+        Qx = sum(x .^ 2)
+        Qy = sum(y .^ 2)
+        exp(sin(Sx * Sy * w) + Qx * Sy + Qy * Sx * w)
+    end
+    g4(x::AbstractVector, y::AbstractVector, w::Real) = begin # Vector -> Vector mappings
+        Sx = sum(x)
+        Sy = sum(y)
+        Qy = sum(y .^ 2)
+        exp.(sin.(x .* Sy .* w) .+ x.^2 .* Sy .+ Sx * Qy * w)
+    end
+    # ift function to test; using f(z,args) = z - g(args...) ↔ z = g(args...) 
+    test_f(x,y,w,g) = begin
+        xp = nested_pvalue(x)
+        yp = nested_pvalue(y)
+        wp = nested_pvalue(w)
+        args_p = (xp, yp, wp)
+        z = g(args_p...)
+        args = (x,y,w)
+        f(z,args) = z - g(args...) # change g to g1,g2,g3,g4 to test different functions
+        ift(z,f,args,args_p)
+    end
+    Tagx = Tag{:x,Float64};
+    Tagw = Tag{:w,Float64};
+    Tagy = Tag{:y,Float64};
+
+    @testset "Mixed tags: Scalar -> Scalar" begin
+        x = randn(); y = randn(); w = randn();
+        x1 = make_dual(Tagx,x,1); y1 = make_dual(Tagy,y,1); w1 = make_dual(Tagw,w,1); # first order duals
+        x2 = make_dual(Tagx,x1,1); y2 = make_dual(Tagy,y1,1); w2 = make_dual(Tagw,w1,1); # second order duals
+        g = g1
+        dual_z = test_f(x2,y2,w1,g)
+        dual_z_true = g(x2,y2,w1)
+        @test dual_z ≈ dual_z_true
+    end
+    @testset "Mixed tags: Scalar -> Vector" begin
+        x = randn(); y = randn(); w = randn();
+        x1 = make_dual(Tagx,x,1); y1 = make_dual(Tagy,y,1); w1 = make_dual(Tagw,w,1); # first order duals
+        x2 = make_dual(Tagx,x1,1); y2 = make_dual(Tagy,y1,1); w2 = make_dual(Tagw,w1,1); # second order duals
+        g = g2
+        dual_z = test_f(x2,y2,w1,g)
+        dual_z_true = g(x2,y2,w1)
+        @test all(dual_z .≈ dual_z_true)
+    end
+    @testset "Mixed tags: Vector -> Scalar" begin
+        x = randn(3); y = randn(5); w = randn();
+        x1 = make_dual(Tagx,x,1); y1 = make_dual(Tagy,y,1); w1 = make_dual(Tagw,w,1); # first order duals
+        x2 = make_dual(Tagx,x1,1); y2 = make_dual(Tagy,y1,1); w2 = make_dual(Tagw,w1,1); # second order duals
+        g = g3
+        dual_z = test_f(x2,y2,w1,g)
+        dual_z_true = g(x2,y2,w1)
+        @test dual_z ≈ dual_z_true
+    end
+    @testset "Mixed tags: Vector -> Vector" begin
+        x = randn(3); y = randn(5); w = randn();
+        x1 = make_dual(Tagx,x,1); y1 = make_dual(Tagy,y,1); w1 = make_dual(Tagw,w,1); # first order duals
+        x2 = make_dual(Tagx,x1,1); y2 = make_dual(Tagy,y1,1); w2 = make_dual(Tagw,w1,1); # second order duals
+        g = g4
+        dual_z = test_f(x2,y2,w1,g)
+        dual_z_true = g(x2,y2,w1)
+        @test all(dual_z .≈ dual_z_true)
+    end
+end
+
+
+
+

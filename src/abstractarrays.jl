@@ -65,6 +65,11 @@ For a Vector of Duals with a single partial we return an AbstractVector. For a V
 struct PartialsArray{T,N,V} <: AbstractArray{T,N} # <: AbstractVecOrMat{T}
    vec::V
 end
+function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,V<:AbstractArray{T,N}} # AbstractArray{Dual,N} with NN-partials -> AbstractArray{V,N+1} 
+    return PartialsArray{VV,N+1,V}(vec)
+end
+Base.getindex(x::PartialsArray{VV,3,V},i,j,k) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractMatrix{T}} = extract_partials_(x.vec[i,j], k) # extract I[end]-th partial from Dual at I[1:end-1]
+Base.size(x::PartialsArray{VV,N,V}) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,NV,V<:AbstractArray{T,NV}} = (size(x.vec)..., NN)
 function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} # AbstractVector{Dual} with NN-partials -> AbstractMatrix    
     return PartialsArray{VV,2,V}(vec)
 end
@@ -96,7 +101,8 @@ end
 function PromoteToDualArray(vec::VV, DT::Type{<:Dual}) where {N,V,VV<:AbstractArray{V,N}}
     V === DT && return vec # already of desired Dual type
     has_dual(vec) || return vec # elements do not contain duals
-    return PromoteToDualArray{V,N,VV,DT}(vec)
+    T = V <: Dual ? DT : V # if V is a Dual, the eltype is the promoted DT otherwise maintain eltype, such as Any
+    return PromoteToDualArray{T,N,VV,DT}(vec)
 end
 Base.size(A::PromoteToDualArray) = size(A.vec)
 Base.getindex(x::PromoteToDualArray{T,N,V,DT},I...) where {T,N,V,DT} = begin
