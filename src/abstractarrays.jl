@@ -68,7 +68,7 @@ end
 function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,V<:AbstractArray{T,N}} # AbstractArray{Dual,N} with NN-partials -> AbstractArray{V,N+1} 
     return PartialsArray{VV,N+1,V}(vec)
 end
-Base.getindex(x::PartialsArray{VV,3,V},i,j,k) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractMatrix{T}} = extract_partials_(x.vec[i,j], k) # extract I[end]-th partial from Dual at I[1:end-1]
+Base.getindex(x::PartialsArray{VV,3,V},i,j,k) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractMatrix{T}} = extract_partials_(x.vec[i,j], k) 
 Base.size(x::PartialsArray{VV,N,V}) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,NV,V<:AbstractArray{T,NV}} = (size(x.vec)..., NN)
 function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} # AbstractVector{Dual} with NN-partials -> AbstractMatrix    
     return PartialsArray{VV,2,V}(vec)

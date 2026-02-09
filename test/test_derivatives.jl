@@ -232,7 +232,3 @@ end
         @test all(dual_z .≈ dual_z_true)
     end
 end
-
-
-
-

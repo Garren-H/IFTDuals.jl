@@ -124,13 +124,12 @@ function store_ift_cache(y::V, BNi::DT, neg_A, PT=Partials{1,V}) where {T,V<:Rea
 end
 
 function store_ift_cache(y::V, BNi::DT, neg_A, PT=Partials{N,V}) where {T,V<:Real,N,DT<:Dual{T,V,N}} # offload logic to be more efficient with storage types
-    dual_cache = Vector{V}(undef, N)
-    for i in 1:N
+    dual_cache = PT(ntuple(i -> begin
         BNi_i = extract_partials_(BNi, i) # get nested Duals
         dy = extract_partials_(y, i) # get nested Duals
-        dual_cache[i] = ift_(dy, BNi_i, neg_A)
-    end
-    return make_dual(y, DT, PT, dual_cache) # construct Dual numbers
+        ift_(dy, BNi_i, neg_A)
+    end, Val{N}))
+    return DT(y, dual_cache) # construct Dual numbers
 end
 
 function store_ift_cache(y::Y, BNi::B, neg_A, PT=Partials{1,V}) where {T,V<:Real,DT<:Dual{T,V,1},Y<:AbstractVector{V},B<:AbstractVector{DT}} # offload logic to be more efficient with storage types
