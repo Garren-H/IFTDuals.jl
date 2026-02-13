@@ -1,4 +1,3 @@
-using StaticArrays
 @testset "Compute derivatives for: Vector, Tuple and Struct" begin
     struct MyStruct{T<:Real}
         θ::Vector{T}

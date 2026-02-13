@@ -35,14 +35,19 @@ seed_nested_dual(y::Y, DT::Type{Dual{T,V,N}}; ad_type::Symbol=:symmetric) where 
 ```
 Extracts the `partials` field as a `Tuple` from a `ForwardDiff.Dual`. When an index `idx` is provided, it extracts the `idx`-th partial derivative.
 """
-extract_partials_(x::Dual{T,V,N}, idx::ID) where {T,V,N,T2<:Union{Int,CartesianIndex{1}},ID<:ScalarOrAbstractVec{T2}} = x.partials[idx]
+extract_partials_(x::V,idx::ID) where {V<:Dual,ID<:IDX} = x.partials[idx]
 extract_partials_(x::Dual{T,V,1}) where {T,V} = x.partials[1]
-extract_partials_(x::Dual{T,V,1}, idx::Union{Int,CartesianIndex{1}}) where {T,V} = idx == 1 ? x.partials[1] : throw(ArgumentError("Index out of bounds for Dual with 1 partial"))
-extract_partials_(x::Dual{T,V,N}) where {T,V,N} = PartialsArray(x) # wrap to extract partials
-extract_partials_(x::X) where {X<:AbstractVecOrMat{<:Dual}} = PartialsArray(x) # wrap to extract partials
-extract_partials_(x::X,::Colon) where {X<:AbstractVecOrMat{<:Dual}} = PartialsArray(x) # wrap to extract partials
-extract_partials_(x::X, idx::ID) where {X<:AbstractVector{<:Dual},T2<:Union{Int,CartesianIndex{1}},ID<:ScalarOrAbstractVec{T2}} = @view PartialsArray(x)[:, idx] # wrap to extract partials
-extract_partials_(x::X, idx::ID) where {X<:AbstractMatrix{<:Dual},T2<:Union{Int,CartesianIndex{1}},ID<:ScalarOrAbstractVec{T2}} = @view PartialsArray(x)[:, :, idx] # wrap to extract partials
+extract_partials_(x::Dual{T,V,1}, idx::ID) where {T,V,ID<:IDX} = idx == 1 ? x.partials[1] : throw(ArgumentError("Index out of bounds for Dual with 1 partial"))
+extract_partials_(x::V) where {V<:Dual} = PartialsArray(x) # wrap to extract partials
+extract_partials_(x::X) where {X<:AbstractArray{<:Dual}} = PartialsArray(x) # wrap to extract partials
+extract_partials_(x::V,::Colon) where {V<:Dual} = PartialsArray(x) # wrap to extract partials
+extract_partials_(x::X,::Colon) where {X<:AbstractArray{<:Dual}} = PartialsArray(x) # wrap to extract partials
+extract_partials_(x::X,::ID) where {T,V,X<:AbstractArray{Dual{T,V,1}},ID<:IDX} = PartialsArray(x)
+function extract_partials_(x::X,idx::ID) where {N,X<:AbstractArray{<:Dual,N},ID<:IDX}
+    pa = PartialsArray(x)
+    idxs = ntuple(_ -> Colon(), N)
+    return @view pa[idxs...,idx] # wrap to extract partials
+end
 
 # Functions to actually compute higher order derivatives
 """
@@ -56,14 +61,16 @@ make_dual(y::V, DT::Type{Dual{T,V,N}}, PT::Type{Partials{N,V}}, parts::P) where 
     DT(y, PT(NTuple{N,V}(parts)))
 end
 function make_dual(y::Y, DT::Type{Dual{T,V,N}}, PT::Type{Partials{N,V}}, parts::P) where {T,V,N,Y<:AbstractVector{V},P<:AbstractVecOrMat{V}}
-    out = Vector{DT}(undef, length(y)) # preallocate output
+    out = similar(y, DT) # preallocate output
     @inbounds for i in eachindex(y)
-        out[i] = make_dual(y[i], DT, PT, view(parts, i, :))
+        partsi = P <: AbstractVector ? parts[i] : view(parts, i, :)
+        out[i] = make_dual(y[i], DT, PT, partsi)
     end
     return out
 end
+
 function make_dual(y::Y, DT::Type{Dual{T,V,N}}, PT::Type{Partials{N,V}}, parts::P) where {T,V,N,Y<:AbstractMatrix{V},P<:AbstractArray{V,3}}
-    out = Array{DT}(undef, size(y)...) # preallocate output
+    out = similar(y, DT) # preallocate output
     @inbounds for i in axes(y, 1), j in axes(y, 2)
         out[i, j, :] .= make_dual(y[i, j], DT, PT, view(parts, i, j, :))
     end
@@ -82,10 +89,7 @@ type of `y` is an `AbstractVector`, `neg_A` is an LU factorization hence we solv
 is a scalar as well and we have two cases, `BNi` being a vector (indicating multiple partials) or a scalar (indicating a single partial).
 When `BNi` is a vector and mutable, we perform in-place division for efficiency. When we a scalars we simply divide.
 """
-function solve_ift(::Y, BNi::B, neg_A) where {V<:Real,Y<:AbstractVector,B<:AbstractVecOrMat{V}} # vector case
-    if !(neg_A isa LU)
-        return neg_A \ BNi # neg_A is a SMatrix?
-    end
+function solve_ift(::Y, BNi::B, neg_A::LU) where {V<:Real,Y<:AbstractVector,B<:AbstractVecOrMat{V}} # vector case, LU from LinearAlgebra
     if ismutable(BNi)
         ldiv!(neg_A, BNi)
     else
@@ -128,7 +132,7 @@ function store_ift_cache(y::V, BNi::DT, neg_A, PT=Partials{N,V}) where {T,V<:Rea
         BNi_i = extract_partials_(BNi, i) # get nested Duals
         dy = extract_partials_(y, i) # get nested Duals
         ift_(dy, BNi_i, neg_A)
-    end, Val{N}))
+    end, N))
     return DT(y, dual_cache) # construct Dual numbers
 end
 
@@ -379,10 +383,11 @@ function ift(y::Y, f::F, args, args_primal, der_order::I, tag_is_mixed::Bool, DT
         _1 = -one(V)
         if ismutable(neg_A) # safely handle cases of StaticArrays
             neg_A .*= _1
+            neg_A = lu!(neg_A)
         else
-            neg_A = -one(V) * neg_A 
+            neg_A = -one(V) * neg_A
+            neg_A = lu(neg_A) # LU factorization for later solves
         end
-        neg_A = lu(neg_A) # LU factorization for later solves
     else
         neg_A = -derivative(f, AFD, y, Constant(args_primal))
     end

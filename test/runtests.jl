@@ -1,4 +1,4 @@
-using IFTDuals,DifferentiationInterface,Test
+using StaticArrays,IFTDuals,DifferentiationInterface,Test
 import ForwardDiff
 import ForwardDiff: Dual, Tag, Partials
 const AFD = AutoForwardDiff()

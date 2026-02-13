@@ -65,33 +65,42 @@ For a Vector of Duals with a single partial we return an AbstractVector. For a V
 struct PartialsArray{T,N,V} <: AbstractArray{T,N} # <: AbstractVecOrMat{T}
    vec::V
 end
-function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,V<:AbstractArray{T,N}} # AbstractArray{Dual,N} with NN-partials -> AbstractArray{V,N+1} 
-    return PartialsArray{VV,N+1,V}(vec)
+function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,V<:AbstractArray{T,N}}  
+    NV = N
+    NN == 1 || (NV += 1) # if multiple partials, add one dimension to accommodate them in the output array
+    return PartialsArray{VV,NV,V}(vec)
 end
-Base.getindex(x::PartialsArray{VV,3,V},i,j,k) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractMatrix{T}} = extract_partials_(x.vec[i,j], k) 
-Base.size(x::PartialsArray{VV,N,V}) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,NV,V<:AbstractArray{T,NV}} = (size(x.vec)..., NN)
-function PartialsArray(vec::V) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} # AbstractVector{Dual} with NN-partials -> AbstractMatrix    
-    return PartialsArray{VV,2,V}(vec)
-end
-Base.getindex(x::PartialsArray{VV,2,V},i,j) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} = extract_partials_(x.vec[i],j) # extract j-th partial from i-th dual
-Base.size(x::PartialsArray{VV,2,V}) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} = (length(x.vec),NN)
+PartialsArray(vec::V) where {TT,VV,NN,V<:Dual{TT,VV,NN}} = PartialsArray{VV,1,V}(vec) # for scalar Duals, return a vector of partials
+# Base.getindex(x::PartialsArray{VV,3,V},i,j,k) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractMatrix{T}} = extract_partials_(x.vec[i,j], k) 
+# Base.size(x::PartialsArray{VV,N,V}) where {TT,VV,NN,T<:Dual{TT,VV,NN},N,NV,V<:AbstractArray{T,NV}} = (size(x.vec)..., NN)
+#
+# Base.getindex(x::PartialsArray{VV,2,V},i,j) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} = extract_partials_(x.vec[i],j) # extract j-th partial from i-th dual
+# Base.size(x::PartialsArray{VV,2,V}) where {TT,VV,NN,T<:Dual{TT,VV,NN},V<:AbstractVector{T}} = (length(x.vec),NN)
+#
+# Base.getindex(x::PartialsArray{VV,1,V},i) where {TT,VV,T<:Dual{TT,VV,1},V<:AbstractVector{T}} = extract_partials_(x.vec[i],1) # extract only partial from i-th dual
+# Base.size(x::PartialsArray{VV,1,V}) where {TT,VV,T<:Dual{TT,VV,1},V<:AbstractVector{T}} = size(x.vec)
 
-function PartialsArray(vec::V) where {TT,VV,T<:Dual{TT,VV,1},V<:AbstractVector{T}} # AbstractVector{Dual} with 1-partial -> AbstractVector
-    return PartialsArray{VV,1,V}(vec)
-end
-Base.getindex(x::PartialsArray{VV,1,V},i) where {TT,VV,T<:Dual{TT,VV,1},V<:AbstractVector{T}} = extract_partials_(x.vec[i],1) # extract only partial from i-th dual
-Base.size(x::PartialsArray{VV,1,V}) where {TT,VV,T<:Dual{TT,VV,1},V<:AbstractVector{T}} = size(x.vec)
-
-function PartialsArray(vec::V) where {TT,VV,NN,V<:Dual{TT,VV,NN}} # Scalar Dual, multiple partials -> AbstractVector
-    return PartialsArray{VV,1,V}(vec)
-end
 Base.getindex(x::PartialsArray{VV,1,V},i) where {TT,VV,NN,V<:Dual{TT,VV,NN}} = extract_partials_(x.vec,i) # extract i-th partial from single dual
+function Base.getindex(x::PartialsArray{VV,N,V},inds::Vararg{Union{Integer, AbstractUnitRange, Colon}, N}) where {N,TT,VV,NN,V<:AbstractArray{Dual{TT,VV,NN}}}
+    dual_idx = inds[1:end-1]
+    use_view = ~all(Base.Fix2(isa,Integer), dual_idx) # if any indices are not integers, use view to avoid unnecessary allocations
+    partial_idx = inds[end]
+    dual = use_view ? view(x.vec, dual_idx...) : getindex(x.vec, dual_idx...)
+    extract_partials_(dual, partial_idx)
+end
+function Base.getindex(x::PartialsArray{VV,N,V},inds::Vararg{Union{Integer, AbstractUnitRange, Colon}, N}) where {N,TT,VV,V<:AbstractArray{Dual{TT,VV,1}}}
+    use_view = ~all(Base.Fix2(isa,Integer), inds) # if any indices are not integers, use view to avoid unnecessary allocations
+    dual = use_view ? view(x.vec, inds...) : getindex(x.vec, inds...)
+    extract_partials_(dual) 
+end
 Base.size(::PartialsArray{VV,1,V}) where {TT,VV,NN,V<:Dual{TT,VV,NN}} = (NN,)
+Base.size(x::PartialsArray{VV,N,V}) where {N,TT,VV,V<:AbstractArray{Dual{TT,VV,1}}} = size(x.vec)
+Base.size(x::PartialsArray{VV,N,V}) where {N,TT,VV,NN,V<:AbstractArray{Dual{TT,VV,NN}}} = (size(x.vec)...,NN)
 
 # Wrapper for conversion of Arrays{Any},to Arrays of Duals without allocating new arrays.
 """
 ```julia
-    PromoteToDualArray{T,N,V} <: AbstractArray{T,N}
+    PromoteToDualArray{T,N,V,DT<:Dual} <: AbstractArray{T,N}
 ```
 Wrapper for Array{Any} to convert to Array of Duals without allocating new arrays.
 """
