@@ -229,5 +229,14 @@ end
         dual_z = test_f(x2,y2,w1,g)
         dual_z_true = g(x2,y2,w1)
         @test all(dual_z .≈ dual_z_true)
+        x1 = make_dual(Tagw,x,1); w1 = make_dual(Tagx,w,1); # switch ordering
+        x2 = make_dual(Tagw,x,2); w2 = make_dual(Tagx,w,2); # switch ordering
+        dual_z = test_f(x2,y1,w2,g) # just test that it works irrespective of ordering of tags
+        dual_z_true = g(x2,y1,w2)
+        @test all(dual_z .≈ dual_z_true)
+        x1 = SVector{3}(x1); y1 = SVector{5}(y1)
+        dual_z = test_f(x1,y1,w1,g) # just test that it works with SVector inputs
+        dual_z_true = g(x1,y1,w1)
+        @test all(dual_z .≈ dual_z_true)
     end
 end

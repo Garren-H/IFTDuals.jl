@@ -80,16 +80,15 @@ make_dual(y::Y, DT::Type{Dual{T,V,N}}, parts::P) where {T,V,N,Y,P} = make_dual(y
 
 """
 ```julia
-    solve_ift(::AbstractVector,BNi::AbstractVecOrMat{V},neg_A) where V
-    solve_ift(::Real,BNi::AbstractVector{V},neg_A) where V
-    solve_ift(::Real,BNi::V,neg_A) where V
+    solve_ift(BNi::AbstractVecOrMat{V},neg_A::Union{LU,StaticArrays.LU}) where V<:Real
+    solve_ift(BNi::ScalarOrAbstractVecOrMat{V},neg_A) where V
 ```
 Solves the implicit function theorem system for the directional derivatives. It solves one of three cases for efficiency. When the
 type of `y` is an `AbstractVector`, `neg_A` is an LU factorization hence we solve by left-division. When `y` is a scalar, then `neg_A` 
 is a scalar as well and we have two cases, `BNi` being a vector (indicating multiple partials) or a scalar (indicating a single partial).
 When `BNi` is a vector and mutable, we perform in-place division for efficiency. When we a scalars we simply divide.
 """
-function solve_ift(::Y, BNi::B, neg_A::LU) where {V<:Real,Y<:AbstractVector,B<:AbstractVecOrMat{V}} # vector case, LU from LinearAlgebra
+function solve_ift(BNi::B, neg_A::LU) where {V<:Real,B<:AbstractVecOrMat{V}} # vector case, LU from LinearAlgebra
     if ismutable(BNi)
         ldiv!(neg_A, BNi)
     else
@@ -98,7 +97,7 @@ function solve_ift(::Y, BNi::B, neg_A::LU) where {V<:Real,Y<:AbstractVector,B<:A
     return BNi # construct Dual numbers
 end
 
-function solve_ift(::Y, BNi::B, neg_A) where {V<:Real,Y<:Real,B<:AbstractVecOrMat{V}} # scalar with multiple partials
+function solve_ift(BNi::B, neg_A) where {V<:Real,B<:AbstractVecOrMat{V}} # scalar with multiple partials
     if ismutable(BNi)
         BNi ./= neg_A
     else
@@ -107,7 +106,7 @@ function solve_ift(::Y, BNi::B, neg_A) where {V<:Real,Y<:Real,B<:AbstractVecOrMa
     return BNi # construct Dual numbers
 end
 
-function solve_ift(::Y, BNi::V, neg_A) where {V<:Real,Y<:Real} # scalar case with single partial
+function solve_ift(BNi::V, neg_A) where {V<:Real} # scalar case with single partial
     BNi /= neg_A # Solve for directional derivatives
     return BNi # construct Dual numbers
 end
@@ -163,7 +162,7 @@ function ift_(y::Y, BNi::B, neg_A) where {T,V<:Real,N,DT<:Dual{T,V,N},Y<:ScalarO
     if V <: Dual # recursion
         return store_ift_cache(y, BNi, neg_A)
     end
-    dy = solve_ift(y, extract_partials_(BNi), neg_A) # base case, solve for directional derivatives and create Duals
+    dy = solve_ift(extract_partials_(BNi), neg_A) # base case, solve for directional derivatives and create Duals
     return make_dual(y, DT, Partials{N,V}, dy) # construct Dual numbers
 end
 
@@ -229,25 +228,25 @@ Function to solve for the partials.value field and return the partial dual (zero
 function solve_mixed_partials_value end
 
 # scalar y
-function solve_mixed_partials_value(dy::dY, y::Y, BNi::B, neg_A) where {T,V,N,dY<:ScalarOrAbstractVec,Y<:Real,DT<:Dual{T,V,N},B<:ScalarOrAbstractVec{DT}}
+function solve_mixed_partials_value(dy::dY, BNi::B, neg_A) where {T,V,N,dY<:ScalarOrAbstractVec,DT<:Dual{T,V,N},B<:ScalarOrAbstractVec{DT}}
     BNi_i = nested_pvalue(extract_partials_(BNi)) # a scalar or vector of size N
-    dyy_i = solve_ift(y, BNi_i, neg_A)
+    dyy_i = solve_ift(BNi_i, neg_A)
     dy_new = make_dual(dy, DT, seed_nested_dual(dyy_i, V; ad_type=:mixed))
     return dy_new
 end
 # vector y with 1 partial. Same as above, but args should have the correct structure to extract the right BNi_i
-function solve_mixed_partials_value(dy::dY, y::Y, BNi::B, neg_A) where {T,V,N,dY<:AbstractVector,Y<:AbstractVector,DT<:Dual{T,V,N},B<:AbstractVector{DT}} 
-    BNi_i = nested_pvalue(extract_partials_(BNi)) # A Vector of size length(y)
-    dyy_i = solve_ift(y, BNi_i, neg_A)
-    dy_new = make_dual(dy, DT, seed_nested_dual(dyy_i, V; ad_type=:mixed))
-    return dy_new
-end
+# function solve_mixed_partials_value(dy::dY, BNi::B, neg_A) where {T,V,N,dY<:AbstractVector,DT<:Dual{T,V,N},B<:AbstractVector{DT}} 
+#     BNi_i = nested_pvalue(extract_partials_(BNi)) # A Vector of size length(y)
+#     dyy_i = solve_ift(BNi_i, neg_A)
+#     dy_new = make_dual(dy, DT, seed_nested_dual(dyy_i, V; ad_type=:mixed))
+#     return dy_new
+# end
 # vector y with N partials
-function solve_mixed_partials_value(dy::dY, y::Y, BNi::B, neg_A) where {T,V,N,dY<:AbstractMatrix,Y<:AbstractVector,DT<:Dual{T,V,N},B<:AbstractMatrix{DT}}
+function solve_mixed_partials_value(dy::dY, BNi::B, neg_A) where {T,V,N,dY<:AbstractMatrix,DT<:Dual{T,V,N},B<:AbstractMatrix{DT}}
     dy_new = similar(dy, DT)
     for i in axes(dy,2)
         BNi_i = nested_pvalue(extract_partials_(@view BNi[:, i])) # A Matrix of size (length(y),N)
-        dyy_i = solve_ift(y, BNi_i, neg_A)
+        dyy_i = solve_ift(BNi_i, neg_A)
         dy_new[:, i] .= make_dual(view(dy, :, i), DT, seed_nested_dual(dyy_i, V; ad_type=:mixed))
     end
     return dy_new
@@ -256,26 +255,26 @@ end
 """
 Solves the partials.partials fields knowing the partials.value as dy and combines to get the full partials field.
 """
-function solve_mixed_partials(dy::dY, y::Y, BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},Y<:AbstractVector,dY<:AbstractMatrix{V},B<:AbstractMatrix{DT}}
+function solve_mixed_partials(dy::dY, BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},dY<:AbstractMatrix{V},B<:AbstractMatrix{DT}}
     dual_cache = similar(dy, DT) # stores the reconstructed partials field as a matrix of Duals
     for i in axes(dy, 2) # loop through inner partials dimensions
         dy_i = @view dy[:, i] # i-th partials slice with all functions
         BNi_i = extract_partials_(@view BNi[:, i]) # build the i-th partials field
-        dyy = solve_ift(y, BNi_i, neg_A) # solve for i-th partials field
+        dyy = solve_ift(BNi_i, neg_A) # solve for i-th partials field
         dual_cache[:, i] .= make_dual(dy_i, DT, dyy) # reconstruct duals for i-th partials field
     end
     return dual_cache # new dy, may be able to make in-place
 end
 
 # vector y with 1 partial
-function solve_mixed_partials(dy::dY, y::Y, BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},Y<:AbstractVector,dY<:AbstractVector{V},B<:AbstractVector{DT}}
-    dyy = solve_ift(y, extract_partials_(BNi), neg_A) # solve for partials field
-    return make_dual(dy, DT, dyy) # reconstruct duals for partials field
-end
+# function solve_mixed_partials(dy::dY, BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},dY<:AbstractVector{V},B<:AbstractVector{DT}}
+#     dyy = solve_ift(extract_partials_(BNi), neg_A) # solve for partials field
+#     return make_dual(dy, DT, dyy) # reconstruct duals for partials field
+# end
 
 # scalar y
-function solve_mixed_partials(dy::dY, y::Y, BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},Y<:Real,dY<:ScalarOrAbstractVec{V},B<:ScalarOrAbstractVec{DT}}
-    dyy = solve_ift(y, extract_partials_(BNi), neg_A) # solve for partials field
+function solve_mixed_partials(dy::dY, BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},dY<:ScalarOrAbstractVec{V},B<:ScalarOrAbstractVec{DT}}
+    dyy = solve_ift(extract_partials_(BNi), neg_A) # solve for partials field
     return make_dual(dy, DT, dyy) # reconstruct duals for partials field
 end
 
@@ -289,13 +288,13 @@ function ift_mixed_(dy::dY, y::Y, BNi::B, f::F, args, neg_A, target_DT::Type{Dua
     curr_order = order(VB)
     if curr_order > 1 # Recursion
         dy = ift_mixed_(dy, y, pvalue(BNi), f, args, neg_A, target_DT, x -> pvalue(fB(x)))
-        dy_new = solve_mixed_partials_value(dy, y, BNi, neg_A) # returns a scalar, vector or matrix of Duals, which is the partials.partials.value field. A scalar if y isa scalar and N == 1, a vector of size N if y isa scalar and N > 1, a vector of size length(y) if y isa vector and N == 1, and a matrix if y isa vector and N > 1.
+        dy_new = solve_mixed_partials_value(dy, BNi, neg_A) # returns a scalar, vector or matrix of Duals, which is the partials.partials.value field. A scalar if y isa scalar and N == 1, a vector of size N if y isa scalar and N > 1, a vector of size length(y) if y isa vector and N == 1, and a matrix if y isa vector and N > 1.
         # offload this logic to solve for partials.partials.value field for each partial.
         y_star = make_dual(y, target_DT, seed_nested_dual(dy_new, valtype(target_DT); ad_type=:mixed)) # reconstruct y_star with zero partials
         BNi = fB(f(y_star, args)) # Evaluate at the new dual and perform
         return store_ift_cache_mixed(dy, dy_new, y, BNi, f, args, neg_A, fB, target_DT) # compute the partials.partials.partials field, combine with partials.partials.value field and store in the correct structure as a scalar, vector or matrix of Duals. Offload logic to be more efficient with storage types.
     end
-    dy = solve_mixed_partials(dy, y, BNi, neg_A) # compute partials.partials and combine with partials,value (dy).
+    dy = solve_mixed_partials(dy, BNi, neg_A) # compute partials.partials and combine with partials,value (dy).
     return dy
 end
 
@@ -304,9 +303,8 @@ function ift_recursive_mixed(y::Y, f::F, args, neg_A, der_order::Int, DT::Type{<
         return ift_recursive(y, f, args, neg_A, der_order) 
     end
     y = ift_recursive_mixed(y, f, pvalue(args), neg_A, der_order - 1, pvalue(DT)) # get previous values first
-    # @show der_order
     BNi = f(seed_nested_dual(y, DT; ad_type=:mixed), args) # apparently need to seed with zero partials to avoid some confusion when tag type is similar, i.e. Tag{typeof(f),Float64} gets confused with Tag{typeof(f),Dual{Tag{typeof(f),Float64}}}, resulting in BNi being evaluated incorrectly, the value which should have occupied value.partials, now occupies partials.value
-    dy = solve_ift(y, nested_pvalue(extract_partials_(BNi)), neg_A) # compute the inner partials.value....value (inner most value field of partials first). 
+    dy = solve_ift(nested_pvalue(extract_partials_(BNi)), neg_A) # compute the inner partials.value....value (inner most value field of partials first). 
     y_star = make_dual(y, DT, seed_nested_dual(dy, valtype(DT); ad_type=:mixed)) # promote to next order dual, with inner most value field of partials solved ,all other fields are zero. 
     BNi = f(y_star, args) 
     dy = ift_mixed_(dy, y, extract_partials_(BNi), f, args, neg_A, DT) # compute partials and store as matrix/vector of scalar Duals
@@ -325,9 +323,9 @@ Input:
 - `args` : tuple or data structure containing Dual numbers indicating the differentiation structure
 - `args_primal` : primal values of `args`
 Optional Input:
-- `DT`   : Target Dual type for the output. If not provided, it is inferred from `args`.
-- `tag_is_mixed` : Boolean indicating if mixed tags are present in `args`. If not provided, it is inferred from `args`.
-- `args_needs_promotion` : Boolean indicating if `args` need to be promoted to a common Dual type.
+- `DT`                  : Target Dual type for the output. If not provided, it is inferred from `args`.
+- `tag_is_mixed`        : Boolean indicating if mixed tags are present in `args`. If not provided, it is inferred from `args`.
+- `args_needs_promotion`: Boolean indicating if `args` need to be promoted to a common Dual type.
 Output:
 - Returns `y` as a Dual number with the appropriate order and partial derivatives computed using the IFT.
 The function works by first determining the order of differentiation and whether mixed tags are present.
@@ -381,11 +379,11 @@ function ift(y::Y, f::F, args, args_primal, der_order::I, tag_is_mixed::Bool, DT
         neg_A = jacobian(f, AFD, y, Constant(args_primal))::AbstractMatrix{V}
         checksquare(neg_A) # Ensure square matrix
         _1 = -one(V)
-        if ismutable(neg_A) # safely handle cases of StaticArrays
+        if ismutable(neg_A) 
             neg_A .*= _1
             neg_A = lu!(neg_A)
-        else
-            neg_A = -one(V) * neg_A
+        else # safely handle cases of StaticArrays
+            neg_A = _1 * neg_A
             neg_A = lu(neg_A) # LU factorization for later solves
         end
     else
