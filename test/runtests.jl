@@ -63,5 +63,6 @@ function make_dual(Tagx::Type{<:Tag}, x::V, der_order::Int) where {V<:Real}
 end
 
 # tests
-include("test_derivatives.jl")
 include("test_utils.jl")
+include("test_derivatives.jl")
+include("test_issues.jl")

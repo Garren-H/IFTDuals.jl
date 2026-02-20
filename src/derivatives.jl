@@ -47,7 +47,7 @@ extract_partials_(x::X,::ID) where {T,V,X<:AbstractArray{Dual{T,V,1}},ID<:IDX} =
 function extract_partials_(x::X,idx::ID) where {N,X<:AbstractArray{<:Dual,N},ID<:IDX}
     pa = PartialsArray(x)
     idxs = ntuple(_ -> Colon(), N)
-    return @view pa[idxs...,idx] # wrap to extract partials
+    return pa[idxs...,idx]
 end
 
 # Functions to actually compute higher order derivatives
@@ -148,16 +148,16 @@ Function to solve for the partials.value field and return the partial dual (zero
 function solve_partials_value end
 # scalar y
 function solve_partials_value(BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},B<:DT}
-    BNi_ = nested_pvalue(extract_partials_(BNi)) # a scalar or vector of size N
+    BNi_ = nested_pvalue(extract_partials_(BNi)) # a scalar
     dyy = solve_ift(BNi_, neg_A)
-    return dyy#make_dual(dy, DT, seed_nested_dual(dyy, V; ad_type=:mixed))
+    return dyy
 end
 # generic case
 function solve_partials_value(BNi::B, neg_A) where {T,V,N,DT<:Dual{T,V,N},B<:AbstractArray{DT}}
-    dyy = collect(nested_pvalue(extract_partials_(BNi)))
+    dyy = collect(nested_pvalue(extract_partials_(BNi))) #materialize to solve in-place
     dyy_ = ndims(dyy) > 2 ? reshape(dyy, (size(dyy,1),:)) : dyy # always solve a matrix/vector
     solve_ift(dyy_, neg_A) # solve for partials.field in-place, updates dyy
-    return dyy#make_dual(dy, DT, seed_nested_dual(dyy, V; ad_type=:mixed)) # reconstruct duals for partials field
+    return dyy
 end
 
 """
@@ -236,17 +236,15 @@ For a given order of differentiation with mixed tags, recursively computes all d
 function ift_mixed_(dy::dY, y::Y, BNi::B, f::F, args, neg_A, target_DT::Type{Dual{T,V,N}}, fB::FB=extract_partials_) where {T,V,N,VB<:Dual,F<:Function,FB<:Function,dY,Y<:ScalarOrAbstractVec{V},B<:Union{VB,AbstractArray{VB}}}
     curr_order = order(VB)
     if curr_order > 1 # Recursion
-        dy = unpack_tuple_and_solve(dy, y, BNi, f, args, neg_A, target_DT, fB)#ift_mixed_(dy, y, pvalue(BNi), f, args, neg_A, pvalue ∘ fB) # returns the partials.value field with all fields solved. 
+        dy = unpack_tuple_and_solve(dy, y, BNi, f, args, neg_A, target_DT, fB) # returns the partials.value field with all fields solved. 
         dy_pv = solve_partials_value(BNi, neg_A) # returns a scalar, vector or matrix of Duals, which is the partials.partials.value field. A scalar if y isa scalar and N == 1, a vector of size N if y isa scalar and N > 1, a vector of size length(y) if y isa vector and N == 1, and a matrix if y isa vector and N > 1.
         dy = pack_(dy,dy_pv) # repack into tuple
-        y_star = mixed_seed_with_val(y,target_DT,dy)#make_dual(y, target_DT, seed_nested_dual(dy_new, valtype(target_DT); ad_type=:mixed)) # reconstruct y_star with zero partials
+        y_star = mixed_seed_with_val(y,target_DT,dy)# reconstruct y_star with zero partials
         BNi = fB(f(y_star, args)) # Evaluate at the new dual and perform
         dy_new = ift_mixed_(dy, y, extract_partials_(BNi), f, args, neg_A, target_DT, extract_partials_ ∘ fB)
-        dy_new = mixed_make_dual(dy_new,VB)
-        return dy_new#make_dual(dy,VB,dy_new) # compute the partials.partials.partials field, combine with partials.partials.value field and store in the correct structure as a scalar, vector or matrix of Duals. Offload logic to be more efficient with storage types.
+        return mixed_make_dual(dy_new,VB)
     end
-    dy = unpack_tuple_and_solve_partials(dy, BNi, neg_A)
-    return dy # compute partials.partials and combine with partials,value (dy) #dy
+    return unpack_tuple_and_solve_partials(dy, BNi, neg_A) # compute partials.partials and combine with partials,value (dy) #dy
 end
 
 function ift_recursive_mixed(y::Y, f::F, args, neg_A, der_order::Int, DT::Type{<:Dual}) where {V<:Real,Y<:ScalarOrAbstractVec{V},F<:Function}

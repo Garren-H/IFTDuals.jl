@@ -1,8 +1,8 @@
 module IFTDualsStaticArraysExt
 
-import IFTDuals: make_dual, solve_ift, PromoteToDualArray, pvalue, nested_pvalue
+import IFTDuals: make_dual, solve_ift, PromoteToDualArray, SeedDualArray, seed_nested_dual, pvalue, nested_pvalue
 import ForwardDiff: Dual, Partials
-import StaticArrays: StaticArray, StaticVector, StaticMatrix, similar_type, LU, ldiv! # ldiv! is essentially from LinearAlgebra
+import StaticArrays: MArray, StaticArray, StaticVector, StaticMatrix, similar_type, LU, ldiv! # ldiv! is essentially from LinearAlgebra
 
 
 # derivatives.jl overloads
@@ -18,16 +18,26 @@ end
 function solve_ift(BNi::B, neg_A::LU) where {V<:Real,B<:AbstractMatrix{V}} # vector case, LU from StaticArrays
     # StaticArrays.jl \ implementation uses F.U \ ( F.L \ b[F.p,:] ) when the input is a AbstractMatrix, which is inefficient if b is not a SMatrix (i.e. b[F.p,:] creates a new Matrix, then does 2 triangular solves, allocating new arrays at each step). We instead utilize ldiv!
     b = BNi
-    if !(B <: SubArray) # get a view first, @view(AbstractMatrix,:,:)[neg_A.p.:] allocates a new array
-        b = view(b,:,:) 
+    if ismutable(BNi)
+        Base.permuterows!(b,MArray(neg_A.p)) # in-place pivoting, no allocations
+    else
+        if !(B <: SubArray) # get a view first, @view(AbstractMatrix,:,:)[neg_A.p.:] allocates a new array. If we have a PartialsArray or some other storage, this is required. 
+            b = view(b,:,:) 
+        end
+        b = b[neg_A.p,:] # apply pivoting, returns a new array, should be minimal allocs
     end
-    b = b[neg_A.p,:] # apply pivoting, returns a new array, should be minimal allocs
     ldiv!(neg_A.L,b)
     ldiv!(neg_A.U,b)
     return b
 end
 
 function solve_ift(BNi::B, neg_A::LU) where {S,V<:Real,N,B<:Union{StaticArray{S,V,N},AbstractVector{V}}}
+    if ismutable(BNi)
+        permute!(BNi,neg_A.p)
+        ldiv!(neg_A.L,BNi)
+        ldiv!(neg_A.U,BNi)
+        return BNi
+    end
     return neg_A \ BNi # when we have a AbstractVector, then BNi[neg_A.p] creates a new SVector, so no additonal allocations occur here. 
 end
 
@@ -37,6 +47,10 @@ PromoteToDualArray(x::V, DT::Type{<:Dual}) where {S,T<:Dual,N,V<:StaticArray{S,T
     tmp = PromoteToDualArray{DT,length(N),V,DT}(x)
     M = Base.typename(V).wrapper
     return M{S,DT,N}(tmp) # reconstruct same type of StaticArray with promoted Dual type
+end
+function SeedDualArray(vec::V, DT::Type{<:Dual}; ad_type::Symbol=:symmetric) where {S,T<:Dual,N,V<:StaticArray{S,T,N}}
+   V === DT && return vec # already of desired Dual type 
+   return seed_nested_dual.(vec, DT; ad_type=ad_type)
 end
 
 # utils.jl overloads

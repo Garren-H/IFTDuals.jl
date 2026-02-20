@@ -120,10 +120,13 @@
     @testset "SVector Input: 1st and 2nd order using both single and mixed tags" begin
         x₁_svec = get_x_SVector(θ₁; tag_is_mixed=false);
         @test x₁_svec ≈ x₁ₜ
+        @test (x₁_svec isa SVector)
         x₂_svec = get_x_SVector(θ₂; tag_is_mixed=true);
         @test x₂_svec ≈ x₂ₜ
+        @test (x₂_svec isa SVector)
         x₂_svec = get_x_SVector(θ₂; tag_is_mixed=false);
         @test x₂_svec ≈ x₂ₜ
+        @test (x₂_svec isa SVector)
     end
 end
 
@@ -238,5 +241,6 @@ end
         dual_z = test_f(x1,y1,w1,g) # just test that it works with SVector inputs
         dual_z_true = g(x1,y1,w1)
         @test all(dual_z .≈ dual_z_true)
+        @test dual_z isa SVector
     end
 end
