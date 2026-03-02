@@ -1,5 +1,12 @@
 const noADTypes = Union{String, Symbol, Nothing, Missing, Function}
 
+# Local composed function as to not overwrite/overload Base.:∘. Overloading Base.:∘ may cause issues with other packages/code 
+∘(f::F,::typeof(identity)) where {F<:Function} = f
+∘(::typeof(identity),f::F) where {F<:Function} = f
+∘(::typeof(identity),::typeof(identity)) = identity # curb ambiguity
+∘(f1::F1,f2::F2) where {F1<:Function,F2<:Function} = Base.:∘(f1,f2)
+restructure_composed_(f::F) where {F<:ComposedFunction} = foldl(∘,Base.unwrap_composed(f)) # restructure COmposedFunction such that inner is always a function 
+
 # Functions to extract the inner most primal value from nested Duals in generic Data structures
 """
 ```julia
@@ -38,7 +45,7 @@ pvalue(x::MyStruct{T1,T2}) where {T1<:Real,T2<:Real} = MyStruct{pvalue(T1),pvalu
 
 We encourage the usage of `pvalue` to ensure `x.a` and/or `x.c` are correctly handled if they are custom structs themselves.
 """
-pvalue(::Type{V}) where V<:Dual = valtype(V)
+pvalue(::Type{DT}) where {T,V,N,DT<:Dual{T,V,N}} = V
 pvalue(::Type{NTuple{N,T}}) where {N,T} = NTuple{N, pvalue(T)}
 pvalue(::Type{Dict{K,V}}) where {K,V} = Dict{K, pvalue(V)}
 pvalue(::Type{T}) where T<:noADTypes = T # non-Dual types

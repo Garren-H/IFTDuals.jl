@@ -32,30 +32,6 @@ end
 Base.size(A::NestedPValueArray) = size(A.vec)
 Base.getindex(x::NestedPValueArray,I...) = nested_pvalue(getindex(x.vec,I...))
 
-# Wrapper for Arrays to promote from one Dual to another without allocating; assuming symmetry of partials.
-"""
-```julia
-    SeedDualArray{T,N,V,S<:Symbol} <: AbstractArray{T,N}
-```
-Wrapper for Array to promote from one Dual type to another without allocating new arrays.
-"""
-struct SeedDualArray{T,N,V,S<:Symbol} <: AbstractArray{T,N}
-    vec::V
-    ad_type::S # symbol :mixed or :symmetric indicating the type of dual promotion
-    function SeedDualArray{DT,N,VV,Symbol}(vec::VV, ad_type::Symbol) where {DT,N,V,VV<:AbstractArray{V,N}}
-        @assert in(ad_type, (:mixed, :symmetric)) "ad_type must be either :mixed or :symmetric"
-        return new{DT,N,VV,Symbol}(vec, ad_type)
-    end
-end
-function SeedDualArray(vec::VV, DT::Type{<:Dual}; ad_type::Symbol=:symmetric) where {N,V,VV<:AbstractArray{V,N}}
-    return SeedDualArray{DT,N,VV,Symbol}(vec, ad_type)
-end
-Base.size(A::SeedDualArray) = size(A.vec)
-Base.getindex(x::SeedDualArray{DT,N,V,S},I...) where {DT,N,V,S} = begin 
-    # !all(Base.Fix2(isa,Integer),I) || return seed_nested_dual(getindex(x.vec,I...), DT; ad_type=x.ad_type)
-    return seed_nested_dual(getindex(x.vec, I...), DT; ad_type=x.ad_type)
-end
-
 # Wrapper type to extract partials fields from Dual numbers without allocating new arrays. Acts as AbstractVecOrMat{T}.
 """
 ```julia
@@ -99,4 +75,3 @@ function PromoteToDualArray(vec::VV, DT::Type{<:Dual}) where {N,V,VV<:AbstractAr
 end
 Base.size(A::PromoteToDualArray) = size(A.vec)
 Base.getindex(x::PromoteToDualArray{T,N,V,DT},I...) where {T,N,V,DT} = promote_common_dual_type(getindex(x.vec,I...), DT)
-Base.getindex(x::PromoteToDualArray{T,N,V,DT},I...) where {T<:Dual,N,V,DT} = promote_common_dual_type(getindex(x.vec,I...), DT)

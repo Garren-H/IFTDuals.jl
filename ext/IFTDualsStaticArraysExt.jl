@@ -1,6 +1,6 @@
 module IFTDualsStaticArraysExt
 
-import IFTDuals: make_dual, solve_ift, PromoteToDualArray, SeedDualArray, seed_nested_dual, pvalue, nested_pvalue
+import IFTDuals: solve_ift, PromoteToDualArray, pvalue, nested_pvalue, update_dual, IFTStruct, solve_partials, init_y, update_dual, check_partials_seed_dims, unwrap_function, update_dual_, seed_symm, seed_symm_, seed_mixed, seed_mixed_
 import ForwardDiff: Dual, Partials
 import StaticArrays: SVector, MArray, StaticArray, StaticVector, StaticMatrix, similar_type, LU, ldiv! # ldiv! is essentially from LinearAlgebra
 
@@ -32,28 +32,34 @@ function solve_ift!(BNi::AbstractVecOrMat,neg_A::LU) # BNi is already permuted
     return BNi
 end
 
-# derivatives.jl overloads
-function make_dual(y::Y, DT::Type{Dual{T,V,N}}, PT::Type{Partials{N,V}}, parts::P) where {T,V,N,NY,Y<:StaticVector{NY,V},P<:AbstractVecOrMat{V}} #maintain S/M Array structure if input is S/M Array
-    return similar_type(y,DT)(
-        begin
-            partsi = P <: AbstractVector ? parts[i] : view(parts, i, :)
-            make_dual(y[i], DT, PT, partsi)
-        end 
-    for i in eachindex(y))
+# update_dual.jl overloads
+function update_dual(x::SVector{S,DT}, val::AbstractArray{<:Real}, f::F) where {S,DT<:Dual,F<:Function} # in-place assignment
+    check_partials_seed_dims(length(x), (), val, Symbol("Input Vector")) 
+    ff = unwrap_function(f)
+    return similar_type(x)(update_dual_(x[i], val, ff, (i,)) for i in eachindex(x)) # reconstruct SVector with updated Duals
 end
+function seed_symm(x::SVector{S,DT},f::F) where {S,DT<:Dual,F<:Function}
+    ff = unwrap_function(f)
+    return similar_type(x)(seed_symm_(x[i], ff) for i in eachindex(x))
+end
+seed_mixed(x::SVector{S,DT}, f::F, counter) where {S,DT<:Dual,F<:Function} = similar_type(x)(seed_mixed_(x[i], f, counter) for i in eachindex(x))
+function seed_mixed(x::IFTStruct{Y,FF}, f::F, counter) where {Y<:SVector,FF,F<:Function} # doesnt really make to makes to have StaticArrays and inplace functions assignments, but we still support anyway
+    ff = unwrap_function(f)
+    return IFTStruct(seed_mixed(x.y, ff, counter), x.F) # remake struct
+end
+
+# derivatives.jl overloads
+solve_partials(y::IFTStruct{Y,F}, BNi::B, fB::FB, neg_A, fE::FE=extract_partials_) where {B<:Union{<:Dual,AbstractArray{<:Dual}},FB<:Function,FE<:Function,Y<:SVector,F} = IFTStruct(solve_partials(y.y,BNi,fB,neg_A,fE),y.F) # remake struct; Doesnt really make to makes to have StaticArrays and inplace functions assignments, but we still support anyway
+
+init_y(y::Y, ::Type{DT}) where {Y<:StaticVector,DT<:Dual} = similar_type(y,DT)(y)
 
 function solve_ift(BNi::B, neg_A::LU) where {V<:Real,B<:AbstractMatrix{V}} # vector case, LU from StaticArrays
     # StaticArrays.jl \ implementation uses F.U \ ( F.L \ b[F.p,:] ) when the input is a AbstractMatrix, which is inefficient if b is not a SMatrix (i.e. b[F.p,:] creates a new Matrix, then does 2 triangular solves, allocating new arrays at each step). We instead utilize ldiv!
     b = BNi
     if ismutable(BNi)
         permuterows!(b,neg_A.p) # in-place pivoting, no allocations
-    else
-        if !(B <: SubArray) # get a view first, @view(AbstractMatrix,:,:)[neg_A.p.:] allocates a new array. If we have a PartialsArray or some other storage, this is required. 
-            b = view(b,:,:) 
-        end
-        b = b[neg_A.p,:] # apply pivoting, returns a new array, should be minimal allocs
+        return solve_ift!(b,neg_A)
     end
-    return solve_ift!(b,neg_A)
 end
 
 function solve_ift(BNi::B, neg_A::LU) where {S,V<:Real,N,B<:Union{StaticArray{S,V,N},AbstractVector{V}}}
@@ -61,7 +67,7 @@ function solve_ift(BNi::B, neg_A::LU) where {S,V<:Real,N,B<:Union{StaticArray{S,
         permuterows!(BNi,neg_A.p)
         return solve_ift!(BNi,neg_A)
     end
-    return neg_A \ BNi # when we have a AbstractVector, then BNi[neg_A.p] creates a new SVector, so no additonal allocations occur here. 
+    return neg_A \ BNi # when we have a AbstractVector, then BNi[neg_A.p] creates a new SVector, so no additonal allocations occur here, and SVector should be an acceptable conversion, if LU isa StaticArray.LU then lenght(BNi) == size(neg_A, 1) should be efficient according to user input 
 end
 
 # abstractarrays.jl overloads
@@ -70,10 +76,6 @@ PromoteToDualArray(x::V, DT::Type{<:Dual}) where {S,T<:Dual,N,V<:StaticArray{S,T
     tmp = PromoteToDualArray{DT,length(N),V,DT}(x)
     M = Base.typename(V).wrapper
     return M{S,DT,N}(tmp) # reconstruct same type of StaticArray with promoted Dual type
-end
-function SeedDualArray(vec::V, DT::Type{<:Dual}; ad_type::Symbol=:symmetric) where {S,T<:Dual,N,V<:StaticArray{S,T,N}}
-   V === DT && return vec # already of desired Dual type 
-   return seed_nested_dual.(vec, DT; ad_type=ad_type)
 end
 
 # utils.jl overloads

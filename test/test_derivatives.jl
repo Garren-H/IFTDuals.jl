@@ -10,6 +10,12 @@
         return [f1, f2, f3]
     end
     f_static(x,θ) = SVector{3}(f(x,θ));
+    function f!(F,x,θ)
+        F[1] = x[1]^2 + x[2]^2 + x[3]^2 - θ[1]^2
+        F[2] = θ[2]*x[1] + x[2]
+        F[3] = θ[3]*x[1] + θ[4]*x[3] + θ[5]
+        return F
+    end
 
     closed_form_solution(θ; plusmin::Symbol=:plus) = begin
         c = θ[5]^2 / θ[4]^2 - θ[1]^2
@@ -44,10 +50,21 @@
         x = closed_form_solution(θp.θ; plusmin=plusmin) # replace with some root solver
         return get_x_AD(x, θ)
     end;
-
+    
+    function get_x_inplace(θ::AbstractVector; plusmin::Symbol=:plus)
+        θp = nested_pvalue(θ)
+        x = closed_form_solution(θp; plusmin=plusmin)
+        F = similar(x)
+        return get_AD_inplace(x, θ)
+    end;
 
     function get_x_AD(x, θ)
         return ift(x, f, θ)
+    end;
+
+    function get_AD_inplace(x,θ)
+        F = similar(x)
+        return ift(x,f!,θ;Fbuff=F,inplace=true)
     end;
 
     function get_x_AD(x, θ::Tuple)
@@ -95,6 +112,9 @@
 
         x₃ = get_x(θ₃);
         @test x₃ ≈ x₃ₜ
+
+        x₃_inplace = get_x_inplace(θ₃); # test in-place version
+        @test x₃_inplace ≈ x₃ₜ
     end
 
     # Tuple Input
@@ -169,6 +189,12 @@ end
     # some functions to test with
     g1(x::Real, y::Real, w::Real) = exp(sin(x*y*w) + x^2*y + y^2*w + w^2*x) # Scalar -> Scalar mappings
     g2(x::Real, y::Real, w::Real) = [exp(sin(x*y*w) + x*y),exp(cos(x^2*w + y^2)),exp(sin(x + y + w + x*y*w))] # Scalar -> Vector mappings
+    g2!(F,x,y,w) = begin
+        F[1] = exp(sin(x*y*w) + x*y)
+        F[2] = exp(cos(x^2*w + y^2))
+        F[3] = exp(sin(x + y + w + x*y*w))
+        return F
+    end
     g3(x::AbstractVector, y::AbstractVector, w::Real) = begin # Vector -> Scalar mappings
         Sx = sum(x)
         Sy = sum(y)
@@ -182,6 +208,15 @@ end
         Qy = sum(y .^ 2)
         exp.(sin.(x .* Sy .* w) .+ x.^2 .* Sy .+ Sx * Qy * w)
     end
+    g4!(F,x,y,w) = begin
+        Sx = sum(x)
+        Sy = sum(y)
+        Qy = sum(y .^ 2)
+        for i in eachindex(x)
+            F[i] = exp(sin(x[i] * Sy * w) + x[i]^2 * Sy + Sx * Qy * w)
+        end
+        return F
+    end
     # ift function to test; using f(z,args) = z - g(args...) ↔ z = g(args...) 
     test_f(x,y,w,g) = begin
         xp = nested_pvalue(x)
@@ -193,6 +228,23 @@ end
         f(z,args) = z - g(args...) # change g to g1,g2,g3,g4 to test different functions
         ift(z,f,args,args_p)
     end
+    test_f(F,x,y,w,g!) = begin
+        xp = nested_pvalue(x)
+        yp = nested_pvalue(y)
+        wp = nested_pvalue(w)
+        args_p = (xp, yp, wp)
+        z = deepcopy(g!(F,args_p...))
+        args = (x,y,w)
+        f(F,z,args) = begin
+            g!(F,args...)
+            for i in eachindex(F)
+                F[i] -= z[i]
+            end
+            F
+        end
+        ift(z,f,args,args_p;Fbuff=F)
+    end
+
     Tagx = Tag{:x,Float64};
     Tagw = Tag{:w,Float64};
     Tagy = Tag{:y,Float64};
@@ -213,7 +265,10 @@ end
         g = g2
         dual_z = test_f(x2,y2,w1,g)
         dual_z_true = g(x2,y2,w1)
-        @test all(dual_z .≈ dual_z_true)
+        @test all(dual_z .≈ dual_z_true) 
+        #Inplace test
+        dual_z_inplace = test_f(similar(dual_z,Float64),x2,y2,w1,g2!)
+        @test all(dual_z_inplace .≈ dual_z_true)
     end
     @testset "Mixed tags: Vector -> Scalar" begin
         x = randn(3); y = randn(5); w = randn();
@@ -232,11 +287,19 @@ end
         dual_z = test_f(x2,y2,w1,g)
         dual_z_true = g(x2,y2,w1)
         @test all(dual_z .≈ dual_z_true)
+        #Inplace test
+        dual_z_inplace = test_f(similar(dual_z,Float64),x2,y2,w1,g4!)
+        @test all(dual_z_inplace .≈ dual_z_true)
+
         x1 = make_dual(Tagw,x,1); w1 = make_dual(Tagx,w,1); # switch ordering
         x2 = make_dual(Tagw,x,2); w2 = make_dual(Tagx,w,2); # switch ordering
         dual_z = test_f(x2,y1,w2,g) # just test that it works irrespective of ordering of tags
         dual_z_true = g(x2,y1,w2)
         @test all(dual_z .≈ dual_z_true)
+        #Inplace test
+        dual_z_inplace = test_f(similar(dual_z,Float64),x2,y1,w2,g4!)
+        @test all(dual_z_inplace .≈ dual_z_true)
+
         x1 = SVector{3}(x1); y1 = SVector{5}(y1)
         dual_z = test_f(x1,y1,w1,g) # just test that it works with SVector inputs
         dual_z_true = g(x1,y1,w1)

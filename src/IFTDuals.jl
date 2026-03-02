@@ -13,6 +13,7 @@ include("errors.jl")
 include("checks.jl")
 include("utils.jl")
 include("derivatives.jl")
+include("update_duals.jl")
 include("abstractarrays.jl")
 
 end
