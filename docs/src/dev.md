@@ -5,7 +5,7 @@ As mentioned, the IFT gives a generic way in which one can compute higher-order 
 \frac{d^K y}{d \theta^K} = - \left( \frac{\partial f}{\partial y} \right)^{-1} B_K
 ```
 
-Where ``B_K=\frac{d^{K} f}{d \theta^{K}} - \frac{\partial f}{\partial y} \frac{d^{K} y}{d \theta^{K}}``. The core idea of IFTDuals.jl is using dual numbers (specifically ForwardDiff.jl) and starting from the inner most Dual, compute ``B_K`` using AD, solve for the derivative, convert the result back into a dual and repeat the process until all dual levels have been processed.
+The core idea of IFTDuals.jl is using dual numbers (specifically ForwardDiff.jl) and starting from the inner most Dual, compute ``B_K`` using AD, solve for the derivative, convert the result back into a dual and repeat the process until all dual levels have been processed.
 
 To achieve this, all that is required is to seed `y` appropriately at each level and ``B_K`` will be recovered as the partials field. That is, for the inner most dual (1st order derivative), `y` is seeded with zero (or just using the primal value), resulting in ``B_1`` being given as
 ```math
