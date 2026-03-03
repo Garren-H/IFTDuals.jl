@@ -18,20 +18,20 @@ promote_my_type
 ```
 
 ## Implicit function signature requirements
-The `ift` function only supports the two-argument function signature `f(x, args)`. If your implicit function requires multiple separate parameter arguments, you should define `args` as a tuple and use splatting within your function:
+The `ift` function only supports the two-argument function signature `f(y, args)`. If your implicit function requires multiple separate parameter arguments, you should define `args` as a tuple and use splatting within your function:
 
 ```julia
 # If you have a function with multiple parameters
-function my_function(x, α, β, γ)
+function my_function(y, α, β, γ)
     return ... # some operation
 end
 
-# Wrap it to use the f(y, theta) signature
-f(x, args) = my_function(x, args...)
+# Wrap it to use the f(y, args) signature
+f(y, args) = my_function(y, args...)
 
-# Define theta as a tuple of parameters
+# Define args as a tuple of parameters
 args = (α, β, γ)
 
 # Now you can use ift
-x_dual = ift(x, f, args)
+y_dual = ift(y, f, args)
 ```

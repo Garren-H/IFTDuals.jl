@@ -2,22 +2,36 @@
 
 # utilities
 """
-Unwrap a composed function into a Tuple of functions or return the function itself if not composed. Uses Base.unwrap_composed
+```julia
+    unwrap_function(f::ComposedFunction) -> Tuple
+    unwrap_function(f) -> f
+```
+Unwrap a composed function into a Tuple of functions or return the function itself if not composed. Uses `Base.unwrap_composed`.
 """
 unwrap_function(f::F) where {F<:ComposedFunction} = Base.unwrap_composed(f) # unwrap as Tuple where inner is the final entry
 unwrap_function(f) = f
 """
-extract the inner most function from a Tuple of functions, stemming from an unwrapped composed function.
+```julia
+    inner_f(f::Tuple) -> Function
+```
+Extract the innermost function from a Tuple of functions stemming from an unwrapped composed function. The innermost function is always the last element.
 """
 inner_f(f::Tuple) = f[end] # inner is always the final function in a unwrapped composed
 """
-extract the outer function from a Tuple of functions stemming from an unwrapped composed function.
+```julia
+    outer_f(f::Tuple) -> Union{Function, Tuple}
+```
+Extract the outer function(s) from a Tuple of functions stemming from an unwrapped composed function. Returns a single function if only two elements remain, otherwise a sub-tuple.
 """
 outer_f(f::Tuple) = length(f) === 2 ? f[1] : f[1:end-1]
 
 # Inplace update of Duals
 """
-Functions to help with in-place dual seeding/updating upon solving IFT gradients. Removes the need to allocate new arrays or create wrapper type arrays to store these entries
+```julia
+    update_dual(x::Dual, val, f::Function)
+    update_dual(x::AbstractVector{<:Dual}, val::AbstractArray{<:Real}, f::Function)
+```
+Update duals in-place by assigning solved directional derivatives into the appropriate field of the Dual structure. The function `f` (composed chain of `pvalue`/`extract_partials_`) determines which nested field to update. Removes the need to allocate new arrays or create wrapper type arrays to store these entries.
 """
 update_dual(x::Dual,val::VV,f::F) where {VV,F<:Function} = update_dual_(x,val,unwrap_function(f),())
 function update_dual(x::AbstractVector{<:Dual}, val::AbstractArray{<:Real}, f::F) where {F<:Function} # in-place assignment
@@ -38,7 +52,7 @@ function update_dual_(x::DT,val::VV,f::Tuple,idx::Tuple=()) where {T,V,N,DT<:Dua
     fo = outer_f(f)
     if fi === pvalue
         return DT(update_dual_(x.value,val,fo,idx), x.partials) # recursively update the value field
-    elseif fi === extract_partials_ # we can for symmetry here and then offload correctly if symmetric
+    elseif fi === extract_partials_ # we check for symmetry here and then offload correctly if symmetric
         if N === 1 # all val are some nested partials field
             return DT(x.value, Partials{1,V}((update_dual_(x.partials[1], val, fo, idx),)))
         else # multiple partial directions
@@ -51,7 +65,10 @@ end
 
 # seed symmetric case 
 """
-seeding of duals in-place with symmetric tags
+```julia
+    seed_symm(x::Union{Dual, AbstractVector{<:Dual}, IFTStruct}, f::Function)
+```
+Seed duals in-place for the symmetric-tag case by copying `value.partials` into `partials.value`. The function `f` determines the current nesting level to seed at. This avoids redundant IFT solves when tags are identical across Dual layers.
 """
 seed_symm(x::DT,f::F) where {DT<:Dual,F<:Function} = seed_symm_(x,unwrap_function(f)) # entry point
 function seed_symm(x::AbstractVector{DT},f::F) where {DT<:Dual,F<:Function}
@@ -70,14 +87,20 @@ seed_symm_(x::DT) where {T2,V2,N2,T,V<:Dual{T2,V2,N2},N,DT<:Dual{T,V,N}} = DT(x.
 seed_symm_(x::DT) where {T2,V2<:Dual,N2,T,V<:Dual{T2,V2,N2},N,DT<:Dual{T,V,N}} = DT(x.value,Partials{N,V}(ntuple(i->seed_symm_(V(x.value.partials[i])),N)))
 
 """
-helper to check if tag diff is symmetric -> Tags are the same, meaning value.partials = partials.value. For T1::Tag{F1,V1} and T2::Tag{F2,V2}, we only check if F1 === F2. Tagging of the value may include some nestings of Duals. It should be sufficient to only check the function signature in the tag. 
+```julia
+    is_symm(::Type{<:Dual}) -> Bool
+```
+Check if the outer two Dual layers have symmetric tags, meaning `value.partials == partials.value`. For `Tag{F1,V1}` and `Tag{F2,V2}`, checks if `F1 === F2` and that the number of partials match (`N2 === N`). Returns `false` for non-nested Duals.
 """
 is_symm(::Type{<:Dual}) = false # default to false for non-nested duals
 is_symm(::Type{Dual{T,DT,N}}) where {T,N,V,T2,N2,DT<:Dual{T2,V,N2}} = (N2 === N) && is_symm(T,T2)
 is_symm(::Type{Tag{F1,V1}}, ::Type{Tag{F2,V2}}) where {F1,V1,F2,V2} = F1 === F2
 
 """
-helper to apply the correct unwrapping of a series of functions on dual seeding to obtain the Dual type to perform symmetric checks on. I.e. in the main logic we perform nesting extract_partials_ ∘ pvalue .... This gives us the correct layer of the dual to check. We hence only check the dual type after applying these mappings on the input, or more sufficiently on the initial type using only pvalue on the type, the same number of times as functions are applied in the main logic (the partials field has the same eltype as the value field, so we can just check the eltype of the value field, and hence type).
+```julia
+    get_correct_type(::Type{DT}, f) where {DT<:Dual} -> Type
+```
+Determine the Dual type at the nesting level corresponding to the composed function chain `f`. Since the main IFT logic applies chains of `extract_partials_ ∘ pvalue ∘ ...`, this function mirrors that by applying `pvalue` to the type once per function in the chain, returning the Dual type at the level where symmetry checks should be performed.
 """
 get_correct_type(::Type{DT}, ::typeof(identity)) where {DT<:Dual} = DT
 get_correct_type(::Type{DT}, f::F) where {DT<:Dual,F<:Function} = pvalue(DT)
@@ -86,7 +109,12 @@ get_correct_type(::Type{DT}, f::F) where {DT<:Dual,F<:Tuple} = get_correct_type(
 order_greater_than_one(::Type{DT}) where {T,N,DT<:Dual{T,<:Dual,N}} = true
 order_greater_than_one(::Type{DT}) where {DT<:Dual} = false
 """
-symmetric seeding of mixed tag duals in-place. Some nested duals may have the same tag at some layers, for instance a dual of type Dual{T1,Dual{T2,Dual{T3,V,N3},N2},N1} where T1::Tag{f,V1} and T2::Tag{f,V2} and T3::Tag{f3,V3}. In this case the outer two layers have the same tag and can be seeded symmetrically such as to avoid solving the IFT multiple times to get the same info
+```julia
+    seed_mixed(x::Union{DT, AbstractVector{DT}, IFTStruct}, f::Function) where {DT<:Dual}
+```
+Check for and apply symmetric seeding of mixed-tag duals. Walks the nested Dual layers using `is_symm` to find consecutive layers with matching tags (e.g. `Dual{T1,Dual{T2,Dual{T3,V,N3},N2},N1}` where `T1` and `T2` share a tag). Symmetric layers are seeded by copying `value.partials` into `partials.value`, avoiding redundant IFT solves for those levels.
+
+Returns `(x, new_f, seeded::Bool, needs_solve::Bool)` where `seeded` indicates if any symmetric seeding was applied and `needs_solve` indicates if further `partials.value` solves are still needed at deeper levels.
 """
 function seed_mixed(x::Union{DT,AbstractVector{DT}}, f::F) where {DT<:Dual, F<:Function} # entry point
     ff = unwrap_function(f)
@@ -101,7 +129,7 @@ function seed_mixed(x::Union{DT,AbstractVector{DT}}, f::F) where {DT<:Dual, F<:F
         new_f = extract_partials_ ∘ new_f
     end
     counter === 0 && return x, f, false, false # no symmetry at this level
-    return seed_mixed(x, ff, counter), new_f, true, order_greater_than_one(V) # if final level of symmetry is not a single dual, the new need to solve partials.value field again. 
+    return seed_mixed(x, ff, counter), new_f, true, order_greater_than_one(V) # if final level of symmetry is not a single dual, we still need to solve partials.value field again.
 end
 function seed_mixed(y::IFTStruct, f::F) where {F}
     _,new_f,cond_,needs_solve = seed_mixed(y.y, f)

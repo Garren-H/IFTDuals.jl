@@ -1,16 +1,16 @@
 # IFTDuals.jl
 
-IFTDuals.jl is a lightweight Julia package for computing higher-order derivatives of functions implicitly defined through the Implicit Function Theorem (IFT) using dual numbers. The package enables automatic differentiation for implicit relationships where ``x=g(\theta)`` is defined implicitly through ``f(g(\theta), \theta) = 0``.
+IFTDuals.jl is a lightweight Julia package for computing higher-order derivatives of functions implicitly defined through the Implicit Function Theorem (IFT) using dual numbers. The package enables automatic differentiation for implicit relationships where ``y=g(\theta)`` is defined implicitly through ``f(g(\theta), \theta) = 0``.
 
 ## Overview
  
-The IFT provides a way to compute derivatives of implicitly defined functions. IFTDuals.jl leverages ForwardDiff's dual number system to efficiently compute higher-order derivatives by recursively applying the IFT formulation. Generically, the IFT gives the Kᵗʰ order derivative of ``x`` as:
+The IFT provides a way to compute derivatives of implicitly defined functions. IFTDuals.jl leverages ForwardDiff's dual number system to efficiently compute higher-order derivatives by recursively applying the IFT formulation. Generically, the IFT gives the Kᵗʰ order derivative of ``y`` as:
 
 ```math
-\frac{\partial^K x}{\partial \theta^K} = -\left[\frac{\partial f}{\partial x}\right]^{-1} B_{K}
+\frac{\partial^K y}{\partial \theta^K} = -\left[\frac{\partial f}{\partial y}\right]^{-1} B_{K}
 ```
 
-Where ``B_K``, depends on all order of derivatives of `y` up to order `K-1`. All previous derivatives hence needs to be computed and stored to compute the next order derivative. IFTDuals.jl obtains the ``B_K`` terms recursively, solves for the derivatives and converts the results back into dual numbers. This process is repeated recursively to obtain derivatives of arbitrary order.
+Where ``B_K``, depends on all orders of derivatives of ``y`` up to order ``K-1``. All previous derivatives hence need to be computed and stored to compute the next order derivative. IFTDuals.jl obtains the ``B_K`` terms recursively, solves for the derivatives and converts the results back into dual numbers. This process is repeated recursively to obtain derivatives of arbitrary order.
 
 ## Installation
 
@@ -36,19 +36,19 @@ using IFTDuals
 using DifferentiationInterface
 import ForwardDiff
 
-# Define the implicit function f(x, θ) = 0
-f(x, θ) = ...
+# Define the implicit function f(y, θ) = 0
+f(y, θ) = ...
 
 # Define a function that solves for y and computes derivatives
-function solve_x(θ)
+function solve_y(θ)
     θ_primal = nested_pvalue(θ) # Extract primal value, stripping all dual parts
-    x = root_solver(f, θ_primal)  # Use any root solver to find x such that f(x, θ_primal) = 0
-    return ift(x, f, θ, θ_primal) # Compute derivatives if θ contains duals, otherwise return x
+    y = root_solver(f, θ_primal)  # Use any root solver to find y such that f(y, θ_primal) = 0
+    return ift(y, f, θ, θ_primal) # Compute derivatives if θ contains duals, otherwise return y
 end
 
 θ = 2.0  # Input parameter
 
-value_derivative_and_second_derivative(solve_x, AutoForwardDiff(), θ) # computes derivatives using existing frameworks
+value_derivative_and_second_derivative(solve_y, AutoForwardDiff(), θ) # computes derivatives using existing frameworks
 ```
 
 ## Contributing

@@ -98,7 +98,7 @@ end
 ```
 Extracts the innermost primal value or types from generic structures containing Duals. It recursively applies 
 `pvalue` until the innermost primal value/type is not a Dual. Similar to `pvalue`, for custom structs
-`nested_pvalue` is aplied to all fields in the struct. For custom structs it is recommended to provide 
+`nested_pvalue` is applied to all fields in the struct. For custom structs it is recommended to provide 
 your own method for `nested_pvalue`, similar to `pvalue`. 
 
 Example:

@@ -1,6 +1,6 @@
 # IFTDuals.jl
 
-IFTDuals.jl is a lightweight Julia package for computing higher order derivatives of a function, $x=g(\theta)$, implicitly defined through the implicit function theorem (IFT) using dual numbers. IFT gives the relationship between $g$ and $\theta$ implicitly through the solution of the equation $f\left(g(\theta\right), \theta) = 0$. This package currently only supports derivatives obtained through [ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl)
+IFTDuals.jl is a lightweight Julia package for computing higher order derivatives of a function, $y=g(\theta)$, implicitly defined through the implicit function theorem (IFT) using dual numbers. IFT gives the relationship between $g$ and $\theta$ implicitly through the solution of the equation $f\left(g(\theta\right), \theta) = 0$. This package currently only supports derivatives obtained through [ForwardDiff.jl](https://github.com/JuliaDiff/ForwardDiff.jl)
 
 ## Installation
 You can install IFTDuals.jl via Julia's package manager. In the Julia REPL, enter the package manager by pressing `]` and then run:
@@ -15,18 +15,17 @@ Here is a simple example demonstrating how to use IFTDuals.jl to compute higher 
 ```julia
 using IFTDuals
 using DifferentiationInterface
-import ForwardDiff
 
-# Define the implicit function f(x, θ) = 0
-f(x, θ) = ...
+# Define the implicit function f(y, θ) = 0
+f(y, θ) = ...
 
-function get_x(θ)
+function get_y(θ)
     θ_primal = nested_pvalue(θ)
-    x = root_solver(f, θ_primal)  # Any root solver that finds the primal value of x such that f(x, θ_primal) = 0
-    return ift(x, f, θ, θ_primal) # compute derivatives if duals are present
+    y = root_solver(f, θ_primal)  # Any root solver that finds the primal value of y such that f(y, θ_primal) = 0
+    return ift(y, f, θ, θ_primal) # compute derivatives if duals are present
 end
 
-grad = second_derivative(get_x, AutoForwardDiff(), θ) # use existing interfaces to compute derivatives 
+grad = second_derivative(get_y, AutoForwardDiff(), θ) # use existing interfaces to compute derivatives 
 ```
 
 ## Alternatives

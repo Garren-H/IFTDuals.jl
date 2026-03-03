@@ -10,13 +10,14 @@ struct IFTStruct{Y<:AbstractVector{<:Dual},F<:AbstractVector{<:Dual}}
 end
 IFTStruct(y::AbstractVector,::Type{DT}) where {DT<:Dual} = IFTStruct(init_y(y,DT), similar(y,DT))
 
-# Functions to take a dual as input, and transforms the dual into one of order + 1 and seeds this order + 1 directional derivatives with zeros. We assume symetric derivative structures.
 """
 ```julia
-    extract_partials_(x::Dual{T,V,N}) where {T,N,V}
-    extract_partials_(x::Dual{T,V,N},idx::Union{T2,Vector{T2}}) where {T,V,N,T2<:Union{Int,CartesianIndex{1}}}
+    extract_partials_(x::Dual{T,V,N}) where {T,V,N}
+    extract_partials_(x::Dual{T,V,N}, idx::IDX) where {T,V,N}
+    extract_partials_(x::AbstractArray{<:Dual{T,V,N}}) where {T,V,N}
+    extract_partials_(x::AbstractArray{<:Dual{T,V,N}}, idx::IDX) where {T,V,N}
 ```
-Extracts the `partials` field as a `Tuple` from a `ForwardDiff.Dual`. When an index `idx` is provided, it extracts the `idx`-th partial derivative.
+Extracts partial derivatives from `ForwardDiff.Dual` numbers. For scalar Duals with a single partial (`N==1`), returns the partial value directly. For scalar Duals with multiple partials or arrays of Duals, returns a [`PartialsArray`](@ref) wrapper for allocation-free access. When an index `idx` is provided, extracts the `idx`-th partial derivative. Here `IDX = ScalarOrAbstractVec{<:Union{Int,CartesianIndex{1}}}`.
 """
 extract_partials_(x::V,idx::ID) where {V<:Dual,ID<:IDX} = x.partials[idx]
 extract_partials_(x::Dual{T,V,1}) where {T,V} = x.partials[1]
@@ -40,7 +41,7 @@ end
 Solves the implicit function theorem system for the directional derivatives. It solves one of three cases for efficiency. When the
 type of `y` is an `AbstractVector`, `neg_A` is an LU factorization hence we solve by left-division. When `y` is a scalar, then `neg_A` 
 is a scalar as well and we have two cases, `BNi` being a vector (indicating multiple partials) or a scalar (indicating a single partial).
-When `BNi` is a vector and mutable, we perform in-place division for efficiency. When we a scalars we simply divide.
+When `BNi` is a vector and mutable, we perform in-place division for efficiency. When `neg_A` is a scalar we simply divide.
 """
 function solve_ift(BNi::B, neg_A::LU) where {V<:Real,B<:AbstractVecOrMat{V}} # vector case, LU from LinearAlgebra
     if ismutable(BNi)
@@ -65,9 +66,9 @@ end
 
 """
 ```julia
-    ift_(y::Union{V,<:AbstractVector{V}},BNi::Union{Dual{T,V,N},<:AbstractVector{Dual{T,V,N}}},neg_A::Union{V2,<:LU{V2,<:AbstractMatrix{V2},<:AbstractVector{<:Integer}}}) where {T,V<:Real,N,V2<:Real}
+    ift_(y::Y, BNi::B, neg_A, fB::FB) where {Y, T, V, N, DT<:Dual{T,V,N}, B<:Union{DT, AbstractArray{DT}}, FB<:Function}
 ```
-For a given order of differentiation, recursively computes all directional derivatives using the implicit function theorem and recreates the appropriate `ForwardDiff.Dual` structure.
+For a given order of differentiation, recursively extracts partials from `BNi`, solves for the directional derivatives using the implicit function theorem, and reconstructs the appropriate `ForwardDiff.Dual` structure. `fB` is a composed function chain tracking the current nesting level of partials extraction.
 """
 function ift_(y::Y, BNi::B, neg_A, fB::FB) where {Y,T,V,N,DT<:Dual{T,V,N},B<:Union{DT,AbstractArray{DT}},FB<:Function}
     if V <: Dual # recursion
@@ -85,9 +86,9 @@ getBNi(y::Y,f::F,args,fB::FB) where {Y<:Union{<:Dual,AbstractVector{<:Dual}},F<:
 
 """
 ```julia
-    ift_recursive(y::Union{V,<:AbstractVector{V}},f::Function,args,neg_A::Union{V2,<:LU{V2,<:AbstractMatrix{V2},<:AbstractVector{<:Integer}}},der_order::Int) where {V<:Real,V2<:Real}
+    ift_recursive(y::Y, f::F, args, neg_A, ::Type{DT}, fY::FY=identity) where {Y, F<:Function, T, V, N, DT<:Dual{T,V,N}, FY<:Function}
 ```
-Recursively applies the implicit function theorem to compute higher-order derivatives up to `der_order`. It evaluates the function `f` at the current `y`, solves for the directional derivatives using `ift_`, and promotes `y` to the next order of `Dual` numbers as needed.
+Recursively applies the implicit function theorem for the symmetric-tag case to compute higher-order derivatives. Starting from the innermost Dual level, it evaluates `f` at the current `y`, solves for the directional derivatives using `ift_`, seeds `y` symmetrically via `seed_symm`, and promotes to the next Dual order. `fY` is a composed function chain that extracts the current nesting level from `y` and `args` before evaluation.
 """
 function ift_recursive(y::Y, f::F, args, neg_A, ::Type{DT}, fY::FY=identity) where {Y,F<:Function,T,V,N,DT<:Dual{T,V,N},FY<:Function}
     if V<:Dual # recursion
@@ -102,7 +103,11 @@ end
 
 reshape_(x::AbstractArray{V,N}) where {V,N} = N > 2 ? reshape(x, (size(x,1),:)) : x # reshape to matrix/array by using a view
 """
-Function to solve for the partials.value field and return the partial dual (zero out partials.partials)
+```julia
+    solve_partials_value(BNi::B, y::Y, f::F, args, fY::FY, fB::FB, neg_A) where {B<:Union{<:Dual, AbstractArray{<:Dual}}, Y, F<:Function, FY<:Function, FB<:Function}
+    solve_partials_value(y::Y, f::F, args, fY::FY, fB::FB, neg_A) where {Y, F<:Function, FY<:Function, FB<:Function}
+```
+Solves for the `partials.value` field of the Dual in the mixed-tag case. First checks for symmetric layers via `seed_mixed` to avoid redundant solves, then computes and solves the remaining `partials.value` fields when needed. Returns the updated `y` and the new function chain `fB`.
 """
 function solve_partials_value(BNi::B,y::Y,f::F,args,fY::FY,fB::FB,neg_A) where {B<:Union{<:Dual,AbstractArray{<:Dual}},Y,F<:Function,FY<:Function,FB<:Function}
     y,fB_,seeded,needs_solve = seed_mixed(y,fB∘fY)
@@ -137,7 +142,12 @@ function solve_partials_value(y::Y,f::F,args,fY::FY,fB::FB,neg_A) where {Y,F<:Fu
 end
 
 """
-Solves the partials.partials fields knowing the partials.value as dy and combines to get the full partials field.
+```julia
+    solve_partials(y::Dual, BNi::Dual{T,V,1}, fB::Function, neg_A, fE::Function=extract_partials_) where {T,V}
+    solve_partials(y::Union{<:Dual, AbstractVector{<:Dual}}, BNi::Union{<:Dual, AbstractArray{<:Dual}}, fB::Function, neg_A, fE::Function=extract_partials_)
+    solve_partials(y::IFTStruct, BNi::Union{<:Dual, AbstractArray{<:Dual}}, fB::Function, neg_A, fE::Function=extract_partials_)
+```
+Solves for the directional derivatives at the current Dual level by extracting the RHS via `fE(BNi)`, solving the IFT system with `neg_A`, and updating the partials field of `y` via `update_dual`. `fB` tracks the nesting level for updating. The `IFTStruct` variant delegates to the vector case and returns the struct.
 """
 function solve_partials end
 # scalar y with single partial in all directions
@@ -158,9 +168,9 @@ function solve_partials(y::IFTStruct, BNi::B, fB::FB, neg_A, fE::FE=extract_part
 end
 """
 ```julia
-    ift_mixed_(dy::Union{V,<:AbstractVector{V}},y::Union{V,<:AbstractVector{V}},BNi::Union{Dual{T,V,N},<:AbstractVector{Dual{T,V,N}}},f::Function,args,neg_A::Union{V2,<:LU{V2,<:AbstractMatrix{V2},<:AbstractVector{<:Integer}}},target_DT::Type{Dual{T,V,N}},fB::Function=extract_partials_) where {T,V,N,V2<:Real}
+    ift_mixed_(BNi::B, fB::FB, y::Y, f::F, fY::FY, args, neg_A) where {T, V, N, VB<:Dual{T,V,N}, F<:Function, FB<:Function, FY<:Function, Y, B<:Union{VB, AbstractArray{VB}}}
 ```
-For a given order of differentiation with mixed tags, recursively computes all directional derivatives using the implicit function theorem and (nested) Dual numbers.
+For a given order of differentiation with mixed tags, recursively computes all directional derivatives using the implicit function theorem. First recurses into `partials.value` fields (via `pvalue`), then solves the `partials.value` level via `solve_partials_value`, and finally recurses into `partials.partials` fields (via `extract_partials_`). At each level, `solve_partials_value` checks for symmetric layers to avoid redundant solves.
 """
 function ift_mixed_(BNi::B, fB::FB, y::Y, f::F, fY::FY, args, neg_A) where {T,V,N,VB<:Dual{T,V,N},F<:Function,FB<:Function,FY<:Function,Y,B<:Union{VB,AbstractArray{VB}}}
     if V<:Dual # Recursion
@@ -183,23 +193,27 @@ function ift_recursive_mixed(y::Y, f::F, args, neg_A, ::Type{DT}, fY::FY=identit
 end
 """
 ```julia
-    function ift(y::Union{V,<:AbstractArray{V}},f::Function,args; DT::Type{Union{Nothing,<:Dual}}=nothing, tag_is_mixed::Union{Nothing,Bool}=nothing, args_needs_promotion::Bool=true) where {V<:Real}
-    function ift(y::Union{V,<:AbstractArray{V}},f::Function,args,args_primal; DT::Type{Union{Nothing,<:Dual}}=nothing, tag_is_mixed::Union{Nothing,Bool}=nothing, args_needs_promotion::Bool=true) where {V<:Real}
+    ift(y::Union{V, AbstractVector{V}}, f::Function, args; DT=nothing, tag_is_mixed=nothing, args_needs_promotion=true, Fbuff=nothing, inplace=false) where {V<:Real}
+    ift(y::Union{V, AbstractVector{V}}, f::Function, args, args_primal; DT=nothing, tag_is_mixed=nothing, args_needs_promotion=true, Fbuff=nothing, inplace=false) where {V<:Real}
 ```
-Function to compute higher-order derivatives using the implicit function theorem (IFT) and (nested) Dual numbers. 
+Compute higher-order derivatives using the implicit function theorem (IFT) and (nested) Dual numbers. 
 Input:
-- `y`    : primal input solution to the root finding problem (scalar or vector)
-- `f`    : function handle that takes 'y' and 'args' as inputs. `f(y,args) = 0` is assumed to define the implicit relationship between `y` and values given as `args`. When `inplace=true`, then `f!(F,y,tups)` is expected
-- `args` : tuple or data structure containing Dual numbers indicating the differentiation structure
-- `args_primal` : primal values of `args`
+- `y`            : primal input solution to the root finding problem (scalar or `AbstractVector`)
+- `f`            : function handle that takes `y` and `args` as inputs. `f(y, args) = 0` is assumed to define the implicit relationship between `y` and values given as `args`. When `inplace=true`, the in-place signature `f!(F, y, args)` is expected instead.
+- `args`         : tuple or data structure containing Dual numbers indicating the differentiation structure
+- `args_primal`  : primal values of `args`. If not provided, computed internally via `nested_pvalue(args)`.
 Optional Input:
-- `DT`                  : Target Dual type for the output. If not provided, it is inferred from `args`.
-- `tag_is_mixed`        : Boolean indicating if mixed tags are present in `args`. If not provided, it is inferred from `args`.
-- `args_needs_promotion`: Boolean indicating if `args` need to be promoted to a common Dual type.
-- `inplace`             : Boolean indicating if an in-place version of `f` is being used. If `true`, we expect `f!(F,y,tups)`, where `F` is the output to be mutated. `F` is created internally, once with primal eltypes to compute the Jacobian, and once more when evaluating the Duals. The second time `F` is created with `F=similar(y, DT)` and reused for each differentiation order. Lower order duals are hence always promoted to the target Dual type. 
+- `DT`                   : Target Dual type for the output. If not provided, it is inferred from `args`.
+- `tag_is_mixed`         : Boolean indicating if mixed tags are present in `args`. If not provided, it is inferred from `args`.
+- `args_needs_promotion` : Boolean indicating if `args` need to be promoted to a common Dual type.
+- `Fbuff`                : Pre-allocated buffer (`AbstractVector`) for in-place function evaluation. Must have the same size as `y`. If `nothing` (default), a buffer is allocated internally when `inplace=true`. Providing `Fbuff` automatically sets `inplace=true`.
+- `inplace`              : Boolean indicating if an in-place version of `f` is being used. If `true`, the function signature `f!(F, y, args)` is expected, where `F` is the output vector to be mutated. `F` is allocated internally (once with primal element types to compute the Jacobian, and once with Dual element types when evaluating the Duals). The Dual buffer is created with `similar(y, DT)` and reused for each differentiation order. Lower order duals are hence always promoted to the target Dual type.
 Output:
 - Returns `y` as a Dual number with the appropriate order and partial derivatives computed using the IFT.
 The function works by first determining the order of differentiation and whether mixed tags are present.
+
+!!! note
+    Even when tags are mixed, the implementation checks for partial symmetry at each nesting level. If some nested Dual layers share the same tag, those layers are seeded symmetrically (copying `value.partials` into `partials.value`), avoiding redundant IFT solves for those levels.
 
 !!! warning
     When mixed tags are detected, but `tag_is_mixed=false` is provided, a check is performed to ensure that the number of partials are consistent across the Dual types in `args`. If inconsistencies are found, an error is thrown. No other checks are performed and it is the user's responsibility to ensure symmetry of partial derivatives in this case.
